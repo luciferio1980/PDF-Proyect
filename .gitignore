@@ -1,0 +1,56 @@
+# Build
+build/
+build-*/
+out/
+cmake-build-*/
+.cache/
+compile_commands.json
+
+# IDE
+.idea/
+.vscode/
+*.user
+*.suo
+*.sdf
+CMakeUserPresets.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and recovery (never commit document content)
+logs/
+recovery/
+*.log
+
+# Downloaded third-party binaries
+third_party/pdfium/
+third_party/cache/
+
+# Generated test artefacts
+resources/test_documents/generated/
+*.tmp.pdf
+
+# Compiler / linker
+*.o
+*.obj
+*.a
+*.so
+*.dll
+*.dylib
+*.exe
+*.pdb
+*.ilk
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets
+.env
+*.pfx
+*.p12
+*.pem
+*.key

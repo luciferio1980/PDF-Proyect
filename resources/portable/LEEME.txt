@@ -1,0 +1,60 @@
+PDFForge Alpha 0.2.12
+Independent professional PDF editor
+
+Como usarlo
+-----------
+1. Extrae TODO el zip a una carpeta (no abras el .exe desde dentro del zip).
+2. Si Windows marca el zip como descargado de Internet:
+   clic derecho en el zip > Propiedades > Desbloquear > Aceptar,
+   y vuelve a extraerlo.
+3. Entra en la carpeta PDFForge y haz doble clic en "Abrir PDFForge.bat"
+   (o en PDFForge.exe).
+4. Si aparece "Windows protegio tu PC": Mas informacion > Ejecutar de todas formas.
+5. Se abre el menu de inicio: Editar PDF o Firmar PDF.
+
+Editar PDF
+----------
+- Arrastra un recuadro sobre el texto que quieres cambiar.
+- El programa reconoce la fuente y el texto y abre la edicion.
+  El recuadro y el texto se quedan al tamaño visual que dibujaste
+  (no se encogen a la capa de texto del PDF).
+  Enter confirma. Lo que habia en el recuadro se borra y se escribe el texto nuevo.
+  Pasa el puntero por la linea del recuadro (cursor de cuatro flechas) y
+  arrastra para mover el texto.
+  File > Save escribe el PDF.
+- View > Inspector muestra u oculta el panel de la derecha.
+- Clic fuera del recuadro quita la seleccion.
+- Cambia tamano y color en el inspector y pulsa "Apply to PDF".
+- Add text: activa el boton, clic en la pagina, escribe.
+
+Firmar PDF
+----------
+- Subir imagen, dibujar, o elegir una firma guardada (maximo 8).
+- Ajusta el tamano (puntos) antes de colocarla, o despues con las esquinas.
+- Clic en la pagina para colocar UNA firma. Para firmar otra vez:
+  Inicio > Firmar PDF.
+- Clic en la firma: recuadro de seleccion. Borrar firma o tecla Supr.
+  Clic fuera del recuadro: se deselecciona y ya no se puede borrar
+  hasta que vuelvas a picarla.
+- Guardar firma / Eliminar firma guardada en el panel derecho.
+- Save escribe la firma como objeto de imagen en el PDF.
+
+Paginas
+-------
+- Rotar pagina, insertar pagina en blanco, borrar pagina, insertar otro PDF.
+
+Que puedes probar tambien
+-------------------------
+- Zoom: Ctrl + rueda del raton
+- Buscar: escribe 1.250,00 y pulsa Enter
+- Guardar copia: File > Save copy (no pisa el original si no has editado)
+
+Si no arranca
+-------------
+Esta carpeta debe contener PDFForge.exe, pdfium.dll, Qt6Core.dll,
+platforms\qwindows.dll, vcruntime140.dll y msvcp140.dll juntas.
+
+Requisitos
+----------
+Windows 10/11 de 64 bits.
+El procesamiento es local: no se suben documentos.
