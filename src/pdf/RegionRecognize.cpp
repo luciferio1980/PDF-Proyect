@@ -161,6 +161,7 @@ RegionRead recognizeRegion(PdfDocument& document, int pageIndex, RectF pageRect)
         return out;
     }
     out.bounds = pageRect;
+    out.marquee = pageRect;
     const auto spans = document.extractText(pageIndex);
     for (const auto& span : spans) {
         if (spanInBox(span, pageRect)) {

@@ -45,7 +45,10 @@ See the tree in the repository root. Core code lives in `src/`. Tests live in
 - C++20, RAII, smart pointers, no PDFium handle leaks
 - Do not log PDF contents or passwords
 - Do not add GPL/AGPL libraries
-- Do not implement text edit as “white rectangle + overlay”
+- Do not implement text edit as a full-page white rectangle + overlay.
+  A region replace may paint a local background patch the size of the
+  selection (sampled from the page) so leftover image pixels are not
+  visible under the new text.
 
 ## Known Alpha 0.2 limitations
 

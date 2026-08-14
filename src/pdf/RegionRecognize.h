@@ -19,6 +19,7 @@ struct RegionRead {
     bool italic = false;
     Color color = Color::rgb(0, 0, 0);
     RectF bounds;
+    RectF marquee;
     bool usedOcr = false;
 
     [[nodiscard]] bool empty() const { return text.empty() && spans.empty(); }

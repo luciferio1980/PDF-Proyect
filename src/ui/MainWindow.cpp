@@ -615,14 +615,14 @@ void MainWindow::applySpanEdits(const QString& text, float fontSize, const QColo
     const pdfforge::Color next =
         pdfforge::Color::fromBytes(color.red(), color.green(), color.blue(), color.alpha());
     try {
-        if (!region_.spans.empty()) {
-            document_->replaceRegion(region_.spans, text.toStdString(), fontSize, next);
+        const pdfforge::RectF box = !region_.marquee.empty() ? region_.marquee : region_.bounds;
+        const bool hasRegion = !region_.spans.empty() || !box.empty();
+        if (hasRegion) {
+            const int page =
+                !region_.spans.empty() ? region_.spans.front().pageIndex : canvas_->pageIndex();
+            document_->replaceRegion(page, box, region_.spans, text.toStdString(), fontSize, next);
         } else if (auto span = canvas_->selectedSpan()) {
             document_->editSpan(*span, text.toStdString(), fontSize, next);
-        } else if (!region_.text.empty() || !text.trimmed().isEmpty()) {
-            document_->addText(canvas_->pageIndex(),
-                               pdfforge::PointF{region_.bounds.x, region_.bounds.y},
-                               text.toStdString(), fontSize, next);
         } else {
             return;
         }
@@ -641,8 +641,11 @@ void MainWindow::deleteSelectedSpan() {
         return;
     }
     try {
-        if (!region_.spans.empty()) {
-            document_->replaceRegion(region_.spans, {}, region_.fontSize, region_.color);
+        if (!region_.spans.empty() || !region_.marquee.empty() || !region_.bounds.empty()) {
+            const pdfforge::RectF box = !region_.marquee.empty() ? region_.marquee : region_.bounds;
+            const int page =
+                !region_.spans.empty() ? region_.spans.front().pageIndex : canvas_->pageIndex();
+            document_->replaceRegion(page, box, region_.spans, {}, region_.fontSize, region_.color);
         } else if (auto span = canvas_->selectedSpan()) {
             document_->deleteSpan(*span);
         } else {

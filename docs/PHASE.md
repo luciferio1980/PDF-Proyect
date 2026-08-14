@@ -11,6 +11,7 @@ Completed:
 - Content-stream text editing via PDFium page objects (not overlay)
 - Marquee selection recognizes font and text for editing
 - Text replace regenerates the original content stream so new glyphs do not stack on the old ones
+- Region apply deletes intersecting text objects and covers leftover image pixels in the selection
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF
 - Visual signature stamp (uploaded image or drawn)

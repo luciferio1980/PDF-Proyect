@@ -69,7 +69,9 @@ public:
     void setSpanFontSize(const TextSpan& span, float fontSize);
     void editSpan(const TextSpan& span, const std::string& utf8, float fontSize, const Color& color);
     void replaceRegion(const std::vector<TextSpan>& spans, const std::string& utf8, float fontSize,
-                       const Color& color);
+                       const Color& color, RectF box = {});
+    void replaceRegion(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
+                       const std::string& utf8, float fontSize, const Color& color);
     void deleteSpan(const TextSpan& span);
     void addText(int pageIndex, PointF pagePoint, const std::string& utf8, float fontSize,
                  const Color& color);
@@ -94,6 +96,8 @@ private:
                            const Color& color);
     void rewriteSpansLocked(const std::vector<TextSpan>& spans, const std::string& utf8,
                             float fontSize, const Color& color);
+    void rewriteRegionLocked(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
+                             const std::string& utf8, float fontSize, const Color& color);
     std::vector<std::uint8_t> saveToMemoryLocked() const;
     void reloadFromBytesLocked(std::vector<std::uint8_t> bytes);
     void writeBytesToPath(const std::vector<std::uint8_t>& bytes,

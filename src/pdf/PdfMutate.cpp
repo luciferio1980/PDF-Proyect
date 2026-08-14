@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <vector>
@@ -367,6 +368,173 @@ void dropPageObjects(FPDF_PAGE page, const std::vector<FPDF_PAGEOBJECT>& targets
     }
 }
 
+RectF pdfObjectBounds(FPDF_PAGEOBJECT obj) {
+    float left = 0;
+    float bottom = 0;
+    float right = 0;
+    float top = 0;
+    if (!obj || !FPDFPageObj_GetBounds(obj, &left, &bottom, &right, &top)) {
+        return {};
+    }
+    return RectF{left, bottom, right - left, top - bottom};
+}
+
+RectF clampRectToPage(RectF box, float pageW, float pageH) {
+    const float x1 = std::min(pageW, box.x + box.width);
+    const float y1 = std::min(pageH, box.y + box.height);
+    box.x = std::max(0.0f, box.x);
+    box.y = std::max(0.0f, box.y);
+    box.width = std::max(0.0f, x1 - box.x);
+    box.height = std::max(0.0f, y1 - box.y);
+    return box;
+}
+
+RectF paddedBox(RectF box, float pad) {
+    box.x -= pad;
+    box.y -= pad;
+    box.width += pad * 2.0f;
+    box.height += pad * 2.0f;
+    return box;
+}
+
+bool shouldDeleteTextObject(const RectF& obj, const RectF& box) {
+    if (obj.empty() || !obj.intersects(box)) {
+        return false;
+    }
+    const float objArea = std::max(1.0f, obj.area());
+    const float boxArea = std::max(1.0f, box.area());
+    // Full-page / letterhead runs stay; a local cover hides the selected slice.
+    if (objArea > boxArea * 4.0f &&
+        (obj.width > box.width * 2.5f || obj.height > box.height * 2.5f)) {
+        return false;
+    }
+    const RectF hit = obj.intersection(box);
+    if (box.contains(obj.x + obj.width * 0.5f, obj.y + obj.height * 0.5f)) {
+        return true;
+    }
+    return hit.area() >= objArea * 0.12f || hit.area() >= boxArea * 0.08f;
+}
+
+void flattenIntersectingForms(FPDF_PAGE page, const RectF& box) {
+    for (int guard = 0; guard < 24; ++guard) {
+        FPDF_PAGEOBJECT form = nullptr;
+        const int n = FPDFPage_CountObjects(page);
+        for (int i = 0; i < n; ++i) {
+            FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+            if (!obj || FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_FORM) {
+                continue;
+            }
+            if (pdfObjectBounds(obj).intersects(box)) {
+                form = obj;
+                break;
+            }
+        }
+        if (!form) {
+            return;
+        }
+        if (!explodeFormToPage(page, form)) {
+            throw Error(Status::EditFailed, "could not flatten form XObject for region edit");
+        }
+    }
+}
+
+Color samplePaperColor(FPDF_PAGE page, const RectF& box) {
+    const Color white = Color::rgb(1, 1, 1);
+    if (!page || box.empty()) {
+        return white;
+    }
+    const float pageW = FPDF_GetPageWidthF(page);
+    const float pageH = FPDF_GetPageHeightF(page);
+    int width = std::max(1, static_cast<int>(std::lround(pageW)));
+    int height = std::max(1, static_cast<int>(std::lround(pageH)));
+    const int maxDim = std::max(width, height);
+    if (maxDim > 1600) {
+        const float cap = 1600.0f / static_cast<float>(maxDim);
+        width = std::max(1, static_cast<int>(std::lround(static_cast<float>(width) * cap)));
+        height = std::max(1, static_cast<int>(std::lround(static_cast<float>(height) * cap)));
+    }
+    FPDF_BITMAP bitmap = FPDFBitmap_Create(width, height, 1);
+    if (!bitmap) {
+        return white;
+    }
+    FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0xFFFFFFFFu);
+    FPDF_RenderPageBitmap(bitmap, page, 0, 0, width, height, 0, 0);
+
+    int ax = 0;
+    int ay = 0;
+    int bx = 0;
+    int by = 0;
+    FPDF_PageToDevice(page, 0, 0, width, height, 0, static_cast<double>(box.x),
+                      static_cast<double>(box.y + box.height), &ax, &ay);
+    FPDF_PageToDevice(page, 0, 0, width, height, 0, static_cast<double>(box.x + box.width),
+                      static_cast<double>(box.y), &bx, &by);
+    const int x0 = std::clamp(std::min(ax, bx), 0, width - 1);
+    const int y0 = std::clamp(std::min(ay, by), 0, height - 1);
+    const int x1 = std::clamp(std::max(ax, bx), x0 + 1, width);
+    const int y1 = std::clamp(std::max(ay, by), y0 + 1, height);
+
+    const auto* src = static_cast<const std::uint8_t*>(FPDFBitmap_GetBuffer(bitmap));
+    const int stride = FPDFBitmap_GetStride(bitmap);
+    std::vector<unsigned> lightR;
+    std::vector<unsigned> lightG;
+    std::vector<unsigned> lightB;
+    std::vector<unsigned> allR;
+    std::vector<unsigned> allG;
+    std::vector<unsigned> allB;
+    const int step = std::max(1, (x1 - x0) * (y1 - y0) / 4000);
+    for (int y = y0; y < y1; y += step) {
+        for (int x = x0; x < x1; x += step) {
+            const auto* px = src + static_cast<std::size_t>(y) * static_cast<std::size_t>(stride) +
+                             static_cast<std::size_t>(x) * 4u;
+            const unsigned b = px[0];
+            const unsigned g = px[1];
+            const unsigned r = px[2];
+            const int lum = (static_cast<int>(r) * 3 + static_cast<int>(g) * 6 + static_cast<int>(b)) / 10;
+            allR.push_back(r);
+            allG.push_back(g);
+            allB.push_back(b);
+            if (lum >= 190) {
+                lightR.push_back(r);
+                lightG.push_back(g);
+                lightB.push_back(b);
+            }
+        }
+    }
+    FPDFBitmap_Destroy(bitmap);
+
+    auto medianChannel = [](std::vector<unsigned>& v) -> unsigned {
+        if (v.empty()) {
+            return 255;
+        }
+        const std::size_t mid = v.size() / 2;
+        std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(mid), v.end());
+        return v[mid];
+    };
+    if (lightR.size() >= 8) {
+        return Color::fromBytes(medianChannel(lightR), medianChannel(lightG), medianChannel(lightB));
+    }
+    if (!allR.empty()) {
+        return Color::fromBytes(medianChannel(allR), medianChannel(allG), medianChannel(allB));
+    }
+    return white;
+}
+
+bool insertCoverRect(FPDF_PAGE page, const RectF& box, unsigned r, unsigned g, unsigned b) {
+    if (!page || box.width < 0.5f || box.height < 0.5f) {
+        return false;
+    }
+    FPDF_PAGEOBJECT path = FPDFPageObj_CreateNewRect(box.x, box.y, box.width, box.height);
+    if (!path) {
+        return false;
+    }
+    if (!FPDFPath_SetDrawMode(path, FPDF_FILLMODE_WINDING, 0) ||
+        !FPDFPageObj_SetFillColor(path, r, g, b, 255) || !FPDFPage_InsertObject(page, path)) {
+        FPDFPageObj_Destroy(path);
+        return false;
+    }
+    return true;
+}
+
 void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
                                     const Color& color) {
     rewriteSpansLocked({span}, utf8, fontSize, color);
@@ -534,20 +702,142 @@ void PdfDocument::editSpan(const TextSpan& span, const std::string& utf8, float 
     rewriteSpanLocked(span, utf8, fontSize, color);
 }
 
+void PdfDocument::rewriteRegionLocked(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
+                                      const std::string& utf8, float fontSize, const Color& color) {
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), pageIndex);
+    if (!page) {
+        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
+    }
+
+    RectF area = box;
+    if (area.empty()) {
+        for (const auto& span : spans) {
+            area = area.united(span.bounds());
+        }
+    }
+    const float pageW = FPDF_GetPageWidthF(page);
+    const float pageH = FPDF_GetPageHeightF(page);
+    area = clampRectToPage(paddedBox(area, 0.75f), pageW, pageH);
+    if (area.empty()) {
+        FPDF_ClosePage(page);
+        throw Error(Status::InvalidArgument, "empty region");
+    }
+
+    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
+    std::vector<FPDF_PAGEOBJECT> targets;
+    for (const auto& item : spans) {
+        for (FPDF_PAGEOBJECT obj : objectsForSpan(page, text, item)) {
+            appendUnique(targets, obj);
+        }
+    }
+
+    double originX = static_cast<double>(area.x + 0.5f);
+    double originY = static_cast<double>(area.y + 1.0f);
+    int fontWeight = 400;
+    bool italic = false;
+    if (!spans.empty()) {
+        originX = static_cast<double>(spans.front().x);
+        originY = static_cast<double>(spans.front().baseline);
+        fontWeight = spans.front().fontWeight;
+        italic = spans.front().italic;
+        if (text && spans.front().pdfCharStart >= 0) {
+            FPDFText_GetCharOrigin(text, spans.front().pdfCharStart, &originX, &originY);
+        }
+        if (fontSize <= 0.0f && spans.front().fontSize > 0) {
+            fontSize = spans.front().fontSize;
+        }
+    }
+    if (text) {
+        FPDFText_ClosePage(text);
+        text = nullptr;
+    }
+    if (fontSize <= 0.0f || fontSize > 200.0f) {
+        fontSize = 12.0f;
+    }
+
+    const Color rgb = color.toRgb();
+    unsigned r = toByte(rgb.c0);
+    unsigned g = toByte(rgb.c1);
+    unsigned b = toByte(rgb.c2);
+    unsigned a = toByte(rgb.alpha);
+
+    FPDF_PAGEOBJECT neu = nullptr;
+    bool insertedText = false;
+    try {
+        if (!targets.empty()) {
+            promoteTargetsToPage(page, targets);
+        }
+        flattenIntersectingForms(page, area);
+        generateOrThrow(page);
+
+        const int count = FPDFPage_CountObjects(page);
+        for (int i = 0; i < count; ++i) {
+            FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+            if (!obj || FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_TEXT) {
+                continue;
+            }
+            if (shouldDeleteTextObject(pdfObjectBounds(obj), area)) {
+                appendUnique(targets, obj);
+            }
+        }
+
+        dirtyAllPageObjects(page);
+        dropPageObjects(page, targets);
+        generateOrThrow(page);
+
+        const Color paper = samplePaperColor(page, area);
+        const Color paperRgb = paper.toRgb();
+        insertCoverRect(page, area, toByte(paperRgb.c0), toByte(paperRgb.c1), toByte(paperRgb.c2));
+
+        if (!utf8.empty()) {
+            neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
+                                         standardFontFor(fontWeight, italic), fontSize);
+            if (!neu || !setObjectText(neu, utf8)) {
+                throw Error(Status::EditFailed, "could not create replacement text object");
+            }
+            FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
+            FPDFPageObj_SetMatrix(neu, &placed);
+            FPDFPageObj_SetFillColor(neu, r, g, b, a);
+            if (!FPDFPage_InsertObject(page, neu)) {
+                throw Error(Status::EditFailed, "could not insert replacement text object");
+            }
+            insertedText = true;
+        }
+        generateOrThrow(page);
+    } catch (...) {
+        if (neu && !insertedText) {
+            FPDFPageObj_Destroy(neu);
+        }
+        FPDF_ClosePage(page);
+        throw;
+    }
+
+    FPDF_ClosePage(page);
+    bakeLocked();
+}
+
 void PdfDocument::replaceRegion(const std::vector<TextSpan>& spans, const std::string& utf8,
-                                float fontSize, const Color& color) {
+                                float fontSize, const Color& color, RectF box) {
     if (spans.empty()) {
         throw Error(Status::InvalidArgument, "empty region");
     }
-    if (spans.front().pageIndex < 0 || spans.front().pageIndex >= pageCount_) {
+    replaceRegion(spans.front().pageIndex, box, spans, utf8, fontSize, color);
+}
+
+void PdfDocument::replaceRegion(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
+                                const std::string& utf8, float fontSize, const Color& color) {
+    if (pageIndex < 0 || pageIndex >= pageCount_) {
         throw Error(Status::PageOutOfRange, "replaceRegion");
     }
+    if (spans.empty() && box.empty()) {
+        throw Error(Status::InvalidArgument, "empty region");
+    }
     if (fontSize <= 0.0f || fontSize > 200.0f) {
-        fontSize = spans.front().fontSize > 0 ? spans.front().fontSize : 12.0f;
+        fontSize = (!spans.empty() && spans.front().fontSize > 0) ? spans.front().fontSize : 12.0f;
     }
     auto api = runtime_->lock();
     markDirtyLocked();
-    rewriteSpansLocked(spans, utf8, fontSize, color);
+    rewriteRegionLocked(pageIndex, box, spans, utf8, fontSize, color);
 }
 
 void PdfDocument::save(const std::filesystem::path& destination) {
