@@ -12,6 +12,7 @@ Completed:
 - Marquee selection recognizes font and text for editing
 - Text replace regenerates the original content stream so new glyphs do not stack on the old ones
 - Region apply deletes intersecting text objects and covers leftover image pixels in the selection
+- The text edit box can be dragged to place the replacement elsewhere
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF
 - Visual signature stamp (uploaded image or drawn)

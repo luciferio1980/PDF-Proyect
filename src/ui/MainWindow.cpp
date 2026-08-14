@@ -38,6 +38,8 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <optional>
 
 namespace pdfforge::ui {
@@ -620,7 +622,21 @@ void MainWindow::applySpanEdits(const QString& text, float fontSize, const QColo
         if (hasRegion) {
             const int page =
                 !region_.spans.empty() ? region_.spans.front().pageIndex : canvas_->pageIndex();
-            document_->replaceRegion(page, box, region_.spans, text.toStdString(), fontSize, next);
+            std::optional<pdfforge::PointF> destOrigin;
+            if (auto dest = canvas_->selectedRegion()) {
+                const float dx = dest->x - region_.bounds.x;
+                const float dy = dest->y - region_.bounds.y;
+                if (std::fabs(dx) > 0.4f || std::fabs(dy) > 0.4f) {
+                    if (!region_.spans.empty()) {
+                        destOrigin = pdfforge::PointF{region_.spans.front().x + dx,
+                                                      region_.spans.front().baseline + dy};
+                    } else {
+                        destOrigin = pdfforge::PointF{dest->x, dest->y};
+                    }
+                }
+            }
+            document_->replaceRegion(page, box, region_.spans, text.toStdString(), fontSize, next,
+                                     destOrigin);
         } else if (auto span = canvas_->selectedSpan()) {
             document_->editSpan(*span, text.toStdString(), fontSize, next);
         } else {
@@ -723,17 +739,22 @@ void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
     canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text));
     canvas_->beginInlineEdit();
     QString source = read.usedOcr ? tr("OCR") : tr("capa de texto");
-    statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt")
+    statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt — arrastra la barra para mover el texto")
                                  .arg(source, QString::fromStdString(view.fontName))
                                  .arg(read.fontSize, 0, 'f', 1),
-                             6000);
+                             8000);
 }
 
 void MainWindow::commitRegionEdit(const QString& text) {
     if (!document_) {
         return;
     }
-    if (text.toStdString() == region_.text) {
+    bool moved = false;
+    if (auto dest = canvas_->selectedRegion()) {
+        moved = std::fabs(dest->x - region_.bounds.x) > 0.4f ||
+                std::fabs(dest->y - region_.bounds.y) > 0.4f;
+    }
+    if (text.toStdString() == region_.text && !moved) {
         return;
     }
     const QColor color = QColor::fromRgbF(region_.color.toRgb().c0, region_.color.toRgb().c1,

@@ -68,14 +68,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.7-alpha
-          name: PDFForge Alpha 0.2.7
+          tag_name: v0.2.8-alpha
+          name: PDFForge Alpha 0.2.8
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.7.
+            Portable Windows build of PDFForge Alpha 0.2.8.
 
-            Edit PDF: drag a selection box around text. Applying an edit
-            removes the original text in that box (and covers leftover
-            image pixels) so the new text is not stacked on top.
+            Edit PDF: drag a selection box around text, then drag the
+            dotted bar to move it. Applying an edit removes the original
+            text in the box and writes the new text at the chosen place.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

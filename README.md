@@ -12,12 +12,12 @@ an official alternative to any other vendor.
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.7-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.8-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 The app starts on a home menu: Edit PDF or Sign PDF. Do not run the exe from inside the zip.
 
-Choose Edit PDF, then drag a box around the text to recognize font and content and edit it. Choose Sign PDF to stamp one signature. File → Save writes the rewritten PDF.
+Choose Edit PDF, then drag a box around the text to recognize font and content and edit it. Drag the dotted bar on the box to move the text. Choose Sign PDF to stamp one signature. File → Save writes the rewritten PDF.
 
 ## What works now
 

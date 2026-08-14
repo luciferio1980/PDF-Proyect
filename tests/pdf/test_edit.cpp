@@ -5,11 +5,12 @@
 #include "pdf/RegionRecognize.h"
 #include "tests/TestHarness.h"
 
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
-#include <algorithm>
 
 namespace {
 
@@ -487,4 +488,40 @@ TEST(ReplaceRegionErasesOverlappingTextAndImageBehind) {
     std::ifstream in(dst, std::ios::binary);
     const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(!contains(saved, "BEHINDSECRET"));
+}
+
+TEST(ReplaceRegionMovesTextToDestination) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-move-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-move-dst");
+    const auto src = copyFixture("TEST_01_SIMPLE_TEXT.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    const int page = doc->pageCount();
+    doc->insertBlankPage(page, pdfforge::SizeF{612.0f, 792.0f});
+    const pdfforge::PointF original{80.0f, 420.0f};
+    doc->addText(page, original, "MOVEORIGIN", 16.0f, pdfforge::Color::rgb(0, 0, 0));
+    const pdfforge::RectF marquee{60.0f, 400.0f, 180.0f, 40.0f};
+    auto read = pdfforge::recognizeRegion(*doc, page, marquee);
+    CHECK(contains(read.text, "MOVEORIGIN"));
+    const pdfforge::PointF dest{240.0f, 520.0f};
+    doc->replaceRegion(page, read.marquee, read.spans, "MOVEDTEXT", 16.0f,
+                       pdfforge::Color::rgb(0, 0, 0), dest);
+    const std::string plain = doc->extractPlainText(page);
+    CHECK(contains(plain, "MOVEDTEXT"));
+    CHECK(!contains(plain, "MOVEORIGIN"));
+    bool placed = false;
+    for (const auto& span : doc->extractText(page)) {
+        if (!contains(span.text, "MOVEDTEXT")) {
+            continue;
+        }
+        CHECK(std::fabs(span.x - dest.x) < 12.0f);
+        CHECK(std::fabs(span.baseline - dest.y) < 16.0f || std::fabs(span.y - dest.y) < 16.0f);
+        placed = true;
+    }
+    CHECK(placed);
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    CHECK(contains(reopened->extractPlainText(page), "MOVEDTEXT"));
+    CHECK(!contains(reopened->extractPlainText(page), "MOVEORIGIN"));
 }

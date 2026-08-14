@@ -96,6 +96,11 @@ private:
     QRect imageRect() const;
     QPolygonF spanPolygon(const pdfforge::RectF& bounds) const;
     QRectF signatureWidgetRect(const pdfforge::RectF& bounds) const;
+    QRectF regionWidgetRect() const;
+    QRectF regionGripRect() const;
+    bool hitsRegionMoveHandle(const QPoint& widgetPos) const;
+    void syncEditorGeometry();
+    void clampRegionToPage();
     pdfforge::RectF resizedSignatureRect(StampHandle handle, const pdfforge::PointF& page) const;
     void finishInlineEdit(bool commit);
     void cancelInlineEdit();
@@ -125,8 +130,10 @@ private:
     QPoint lastMouse_;
     QPoint marqueeOrigin_;
     bool marqueeDrag_ = false;
+    bool movingRegion_ = false;
     bool hasRegion_ = false;
     pdfforge::RectF regionRect_{};
+    pdfforge::PointF moveLastPage_{};
     QString regionText_;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;

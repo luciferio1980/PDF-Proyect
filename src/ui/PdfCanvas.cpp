@@ -59,6 +59,7 @@ void PdfCanvas::setDocument(pdfforge::PdfDocument* document) {
     selectedSignature_ = -1;
     resizingStamp_ = false;
     marqueeDrag_ = false;
+    movingRegion_ = false;
     hasRegion_ = false;
     hits_.clear();
     activeHit_ = -1;
@@ -87,6 +88,7 @@ void PdfCanvas::setPage(int pageIndex) {
     selectedSignature_ = -1;
     resizingStamp_ = false;
     hasRegion_ = false;
+    movingRegion_ = false;
     emit selectionCleared();
     emit signatureSelectionCleared();
     loadSpans();
@@ -119,6 +121,7 @@ void PdfCanvas::reload() {
     loadSignatures();
     selectedSpan_ = -1;
     hasRegion_ = false;
+    movingRegion_ = false;
     emit selectionCleared();
     selectedSignature_ = -1;
     if (keepSignIndex >= 0) {
@@ -233,6 +236,7 @@ void PdfCanvas::clearSelection() {
     cancelInlineEdit();
     selectedSpan_ = -1;
     hasRegion_ = false;
+    movingRegion_ = false;
     marqueeDrag_ = false;
     emit selectionCleared();
     update();
@@ -250,6 +254,7 @@ void PdfCanvas::clearRegionSelection() {
     hasRegion_ = false;
     regionText_.clear();
     marqueeDrag_ = false;
+    movingRegion_ = false;
     update();
 }
 
@@ -492,6 +497,77 @@ QPolygonF PdfCanvas::spanPolygon(const pdfforge::RectF& r) const {
     return poly;
 }
 
+QRectF PdfCanvas::regionWidgetRect() const {
+    if (!hasRegion_) {
+        return {};
+    }
+    const QPolygonF poly = spanPolygon(regionRect_);
+    if (poly.isEmpty()) {
+        return {};
+    }
+    return poly.boundingRect();
+}
+
+QRectF PdfCanvas::regionGripRect() const {
+    const QRectF box = regionWidgetRect();
+    if (box.isEmpty()) {
+        return {};
+    }
+    constexpr qreal kGripH = 16.0;
+    QRectF grip(box.left(), box.top() - kGripH, box.width(), kGripH);
+    if (grip.top() < 2.0) {
+        grip.moveTop(box.bottom());
+    }
+    return grip;
+}
+
+bool PdfCanvas::hitsRegionMoveHandle(const QPoint& widgetPos) const {
+    if (!hasRegion_ || signWorkspace_ || placeStampMode_ || addTextMode_) {
+        return false;
+    }
+    const QRectF grip = regionGripRect();
+    if (grip.contains(widgetPos)) {
+        return true;
+    }
+    const QRectF box = regionWidgetRect();
+    if (box.isEmpty()) {
+        return false;
+    }
+    const QRectF outer = box.adjusted(-6, -6, 6, 6);
+    if (!outer.contains(widgetPos)) {
+        return false;
+    }
+    if (editor_->isVisible() && editor_->geometry().adjusted(2, 2, -2, -2).contains(widgetPos)) {
+        return false;
+    }
+    return true;
+}
+
+void PdfCanvas::clampRegionToPage() {
+    if (!document_ || regionRect_.empty()) {
+        return;
+    }
+    const pdfforge::SizeF page = document_->pageSize(pageIndex_);
+    regionRect_.x = std::clamp(regionRect_.x, 0.0f, std::max(0.0f, page.width - regionRect_.width));
+    regionRect_.y = std::clamp(regionRect_.y, 0.0f, std::max(0.0f, page.height - regionRect_.height));
+}
+
+void PdfCanvas::syncEditorGeometry() {
+    if (!editor_->isVisible() || !hasRegion_) {
+        return;
+    }
+    const QPolygonF poly = spanPolygon(regionRect_);
+    if (poly.isEmpty()) {
+        return;
+    }
+    const QRect rect = poly.boundingRect().adjusted(0, 0, 8, 0).toRect();
+    int pixelSize = std::max(10, rect.height() - 6);
+    QFont font = editor_->font();
+    font.setPixelSize(pixelSize);
+    editor_->setFont(font);
+    editor_->setGeometry(rect);
+}
+
 void PdfCanvas::beginInlineEdit() {
     QRect rect;
     QString text;
@@ -501,9 +577,9 @@ void PdfCanvas::beginInlineEdit() {
         if (poly.isEmpty()) {
             return;
         }
-        rect = poly.boundingRect().adjusted(-4, -4, 8, 4).toRect();
+        rect = poly.boundingRect().adjusted(0, 0, 8, 0).toRect();
         text = regionText_;
-        pixelSize = std::max(10, rect.height() - 8);
+        pixelSize = std::max(10, rect.height() - 6);
         editingSpan_ = -2;
     } else if (selectedSpan_ >= 0 && selectedSpan_ < static_cast<int>(spans_.size())) {
         const auto& span = spans_[static_cast<std::size_t>(selectedSpan_)];
@@ -639,6 +715,18 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
             p.setBrush(fill);
             p.setPen(QPen(theme().copper, 2, Qt::DashLine));
             p.drawPolygon(poly);
+            const QRectF grip = regionGripRect();
+            if (!grip.isEmpty()) {
+                p.setBrush(theme().copper);
+                p.setPen(Qt::NoPen);
+                p.drawRoundedRect(grip, 3, 3);
+                p.setBrush(theme().paper);
+                const qreal cy = grip.center().y();
+                const qreal cx = grip.center().x();
+                for (int i = -2; i <= 2; ++i) {
+                    p.drawEllipse(QPointF(cx + static_cast<qreal>(i) * 5.0, cy), 1.6, 1.6);
+                }
+            }
         }
     }
     if (marqueeDrag_ && !signWorkspace_ && !placeStampMode_) {
@@ -722,8 +810,25 @@ void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
         setCursor(Qt::CrossCursor);
         return;
     }
+    if (movingRegion_) {
+        pdfforge::PointF page;
+        if (widgetToPageClamped(event->pos(), page)) {
+            regionRect_.x += page.x - moveLastPage_.x;
+            regionRect_.y += page.y - moveLastPage_.y;
+            clampRegionToPage();
+            moveLastPage_ = page;
+            syncEditorGeometry();
+            update();
+        }
+        setCursor(Qt::SizeAllCursor);
+        return;
+    }
     if (!signWorkspace_ && !placeStampMode_) {
-        setCursor(marqueeDrag_ ? Qt::CrossCursor : Qt::CrossCursor);
+        if (hitsRegionMoveHandle(event->pos())) {
+            setCursor(Qt::SizeAllCursor);
+        } else {
+            setCursor(Qt::CrossCursor);
+        }
         if (marqueeDrag_) {
             update();
         }
@@ -744,6 +849,18 @@ void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
 
 void PdfCanvas::mousePressEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) {
+        return;
+    }
+    if (!signWorkspace_ && !placeStampMode_ && !addTextMode_ && hitsRegionMoveHandle(event->pos())) {
+        pdfforge::PointF page;
+        if (!widgetToPage(event->pos(), page)) {
+            page = pdfforge::PointF{regionRect_.x + regionRect_.width * 0.5f,
+                                    regionRect_.y + regionRect_.height * 0.5f};
+        }
+        movingRegion_ = true;
+        moveLastPage_ = page;
+        setCursor(Qt::SizeAllCursor);
+        setFocus();
         return;
     }
     finishInlineEdit(true);
@@ -805,6 +922,14 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
 void PdfCanvas::mouseReleaseEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton) {
         QWidget::mouseReleaseEvent(event);
+        return;
+    }
+    if (movingRegion_) {
+        movingRegion_ = false;
+        if (editor_->isVisible()) {
+            editor_->setFocus();
+        }
+        update();
         return;
     }
     if (marqueeDrag_ && !signWorkspace_ && !placeStampMode_) {

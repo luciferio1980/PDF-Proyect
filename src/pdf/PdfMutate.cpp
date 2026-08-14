@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <vector>
 
 namespace pdfforge {
@@ -703,7 +704,8 @@ void PdfDocument::editSpan(const TextSpan& span, const std::string& utf8, float 
 }
 
 void PdfDocument::rewriteRegionLocked(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
-                                      const std::string& utf8, float fontSize, const Color& color) {
+                                      const std::string& utf8, float fontSize, const Color& color,
+                                      std::optional<PointF> destOrigin) {
     FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), pageIndex);
     if (!page) {
         throw Error(Status::EditFailed, "FPDF_LoadPage failed");
@@ -746,6 +748,10 @@ void PdfDocument::rewriteRegionLocked(int pageIndex, RectF box, const std::vecto
         if (fontSize <= 0.0f && spans.front().fontSize > 0) {
             fontSize = spans.front().fontSize;
         }
+    }
+    if (destOrigin) {
+        originX = static_cast<double>(destOrigin->x);
+        originY = static_cast<double>(destOrigin->y);
     }
     if (text) {
         FPDFText_ClosePage(text);
@@ -825,7 +831,8 @@ void PdfDocument::replaceRegion(const std::vector<TextSpan>& spans, const std::s
 }
 
 void PdfDocument::replaceRegion(int pageIndex, RectF box, const std::vector<TextSpan>& spans,
-                                const std::string& utf8, float fontSize, const Color& color) {
+                                const std::string& utf8, float fontSize, const Color& color,
+                                std::optional<PointF> destOrigin) {
     if (pageIndex < 0 || pageIndex >= pageCount_) {
         throw Error(Status::PageOutOfRange, "replaceRegion");
     }
@@ -837,7 +844,7 @@ void PdfDocument::replaceRegion(int pageIndex, RectF box, const std::vector<Text
     }
     auto api = runtime_->lock();
     markDirtyLocked();
-    rewriteRegionLocked(pageIndex, box, spans, utf8, fontSize, color);
+    rewriteRegionLocked(pageIndex, box, spans, utf8, fontSize, color, destOrigin);
 }
 
 void PdfDocument::save(const std::filesystem::path& destination) {
