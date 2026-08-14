@@ -1,6 +1,8 @@
 #include "ui/Theme.h"
 
 #include <QApplication>
+#include <QPalette>
+#include <QStyle>
 #include <QStyleFactory>
 
 namespace pdfforge::ui {
@@ -11,7 +13,9 @@ const Theme& theme() {
 }
 
 void applyApplicationTheme(QApplication& app) {
-    app.setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    if (QStyle* fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        app.setStyle(fusion);
+    }
     const auto& t = theme();
     QPalette pal;
     pal.setColor(QPalette::Window, t.workspace);

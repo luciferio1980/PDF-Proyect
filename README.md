@@ -6,15 +6,16 @@ PDFForge is a desktop application for viewing, analysing, and (in later
 milestones) editing PDF documents locally. It is an original product. It is not
 an official alternative to any other vendor.
 
-**Current milestone: Alpha 0.1 — functional viewer + text extraction + OCR engine.**
+**Current milestone: Alpha 0.1.1 — functional viewer + text extraction + OCR engine.**
 
 ## Run it (Windows)
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.1.0-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.1.1-alpha
 
-Unzip and double-click `PDFForge.exe`. A sample PDF opens automatically.
+Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
+A sample PDF opens automatically. Do not run the exe from inside the zip.
 
 ## What works now
 

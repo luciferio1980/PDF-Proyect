@@ -1,13 +1,16 @@
-PDFForge Alpha 0.1
+PDFForge Alpha 0.1.1
 Independent professional PDF editor
 
 Como usarlo
 -----------
-1. Descomprime esta carpeta donde quieras.
-2. Haz doble clic en PDFForge.exe (o en "Abrir PDFForge.bat").
-3. Se abre un PDF de prueba automaticamente.
-4. Tambien puedes arrastrar otro PDF sobre PDFForge.exe,
-   o usar Archivo > Abrir.
+1. Extrae TODO el zip a una carpeta (no abras el .exe desde dentro del zip).
+2. Si Windows marca el zip como descargado de Internet:
+   clic derecho en el zip > Propiedades > Desbloquear > Aceptar,
+   y vuelve a extraerlo.
+3. Entra en la carpeta PDFForge y haz doble clic en "Abrir PDFForge.bat"
+   (o en PDFForge.exe).
+4. Si aparece "Windows protegio tu PC": Mas informacion > Ejecutar de todas formas.
+5. Se abre un PDF de prueba automaticamente.
 
 Que puedes probar
 -----------------
@@ -16,6 +19,15 @@ Que puedes probar
 - Rotar: botones Rotate CW / CCW
 - Buscar: escribe 1.250,00 y pulsa Enter
 - Guardar copia: File > Save copy (no pisa el original)
+
+Si no arranca
+-------------
+Esta carpeta debe contener PDFForge.exe, pdfium.dll, Qt6Core.dll,
+platforms\qwindows.dll, vcruntime140.dll y msvcp140.dll juntas.
+Si falta alguna, descarga de nuevo el zip Alpha 0.1.1.
+
+Si sigue sin abrir, mira si aparece startup.log al lado del .exe
+y envialo.
 
 Que no esta en esta alpha
 -------------------------

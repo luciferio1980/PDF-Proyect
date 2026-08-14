@@ -57,6 +57,7 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/package_windows.ps1 -BuildDir "$pwd/build" -OutDir "$pwd/dist/PDFForge" -Config RelWithDebInfo
+          Get-ChildItem "$pwd/dist/PDFForge" -Recurse -File | Select-Object FullName, Length
           Compress-Archive -Path "$pwd/dist/PDFForge" -DestinationPath "$pwd/dist/PDFForge-windows-x64.zip" -Force
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -67,14 +68,19 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0-alpha
-          name: PDFForge Alpha 0.1
+          tag_name: v0.1.1-alpha
+          name: PDFForge Alpha 0.1.1
           body: |
-            Portable Windows build of PDFForge Alpha 0.1.
+            Portable Windows build of PDFForge Alpha 0.1.1.
+
+            This build ships the Visual C++ runtime next to the exe so it starts
+            on PCs that do not have the redistributable installed.
 
             1. Download `PDFForge-windows-x64.zip`
-            2. Unzip
-            3. Double-click `PDFForge.exe`
+            2. Unzip the whole archive (do not run the exe from inside the zip)
+            3. Open the `PDFForge` folder
+            4. Double-click `Abrir PDFForge.bat` or `PDFForge.exe`
+            5. If SmartScreen appears: More info → Run anyway
 
             A sample PDF opens automatically. Text editing is not in this alpha.
           files: dist/PDFForge-windows-x64.zip
