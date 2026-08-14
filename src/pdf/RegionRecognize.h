@@ -27,4 +27,9 @@ struct RegionRead {
 
 RegionRead recognizeRegion(PdfDocument& document, int pageIndex, RectF pageRect);
 
+// Point size for the on-canvas editor and for writing replacement text.
+// Uses the drawn marquee height when it is larger than the PDF text-layer
+// size so mixed/image pages keep the visual glyph size.
+[[nodiscard]] float overlayFontSizePt(const RegionRead& read);
+
 }  // namespace pdfforge

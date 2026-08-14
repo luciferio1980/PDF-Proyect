@@ -12,7 +12,7 @@ an official alternative to any other vendor.
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.11-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.12-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 The app starts on a home menu: Edit PDF or Sign PDF. Do not run the exe from inside the zip.
@@ -27,6 +27,7 @@ Choose Edit PDF, then drag a box around the text to recognize font and content a
 - Text extraction with coordinates, font name, size, weight, italic, color, baseline, rotation
 - Search
 - Edit native PDF text by drawing a selection box (recognizes font and text; applying an edit erases what was in the box)
+- The selection keeps the visual size of the box you drew; overlay text does not shrink to the PDF text layer
 - Hover the selection outline (four-arrow cursor) and drag to move the text
 - View → Inspector shows or hides the inspector panel
 - Home menu to choose Edit PDF or Sign PDF

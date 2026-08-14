@@ -68,14 +68,13 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.11-alpha
-          name: PDFForge Alpha 0.2.11
+          tag_name: v0.2.12-alpha
+          name: PDFForge Alpha 0.2.12
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.11.
+            Portable Windows build of PDFForge Alpha 0.2.12.
 
-            Selected text keeps its original size. The selection box
-            grows to fit instead of shrinking the glyphs. Hover the
-            border for the four-arrow move cursor.
+            Selected text stays at the visual size of the box you drew.
+            The overlay no longer shrinks to the tiny PDF text layer.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

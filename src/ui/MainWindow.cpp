@@ -634,15 +634,19 @@ void MainWindow::applySpanEdits(const QString& text, float fontSize, const QColo
                 !region_.spans.empty() ? region_.spans.front().pageIndex : canvas_->pageIndex();
             std::optional<pdfforge::PointF> destOrigin;
             if (auto dest = canvas_->selectedRegion()) {
-                const float dx = dest->x - region_.bounds.x;
-                const float dy = dest->y - region_.bounds.y;
-                if (std::fabs(dx) > 0.4f || std::fabs(dy) > 0.4f) {
+                const float dx = dest->x - box.x;
+                const float dy = dest->y - box.y;
+                const bool moved = std::fabs(dx) > 0.4f || std::fabs(dy) > 0.4f;
+                const float visual = pdfforge::overlayFontSizePt(region_);
+                if (moved) {
                     if (!region_.spans.empty()) {
                         destOrigin = pdfforge::PointF{region_.spans.front().x + dx,
                                                       region_.spans.front().baseline + dy};
                     } else {
-                        destOrigin = pdfforge::PointF{dest->x, dest->y};
+                        destOrigin = pdfforge::PointF{dest->x + 1.0f, dest->y + 1.0f};
                     }
+                } else if (visual > region_.fontSize * 1.25f) {
+                    destOrigin = pdfforge::PointF{dest->x + 1.0f, dest->y + 1.0f};
                 }
             }
             document_->replaceRegion(page, box, region_.spans, text.toStdString(), fontSize, next,
@@ -725,19 +729,21 @@ void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
         return;
     }
     region_ = read;
+    const pdfforge::RectF frame = !read.marquee.empty() ? read.marquee : read.bounds;
+    const float overlayPt = pdfforge::overlayFontSizePt(read);
     pdfforge::TextSpan view;
     if (!read.spans.empty()) {
         view = read.spans.front();
     }
     view.text = read.text;
-    view.fontSize = read.fontSize;
+    view.fontSize = overlayPt;
     view.fontWeight = read.fontWeight;
     view.italic = read.italic;
     view.color = read.color;
-    view.x = read.bounds.x;
-    view.y = read.bounds.y;
-    view.width = read.bounds.width;
-    view.height = read.bounds.height;
+    view.x = frame.x;
+    view.y = frame.y;
+    view.width = frame.width;
+    view.height = frame.height;
     if (read.usedOcr) {
         view.fontName = read.matchedFamily.empty() ? "OCR" : ("OCR · " + read.matchedFamily);
     } else if (!read.matchedFamily.empty() && read.matchedFamily != read.fontName) {
@@ -746,12 +752,12 @@ void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
         view.fontName = read.fontName.empty() ? read.matchedFamily : read.fontName;
     }
     inspector_->setSpan(view);
-    canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text), read.fontSize);
+    canvas_->setRegionSelection(frame, QString::fromStdString(read.text), overlayPt);
     canvas_->beginInlineEdit();
     QString source = read.usedOcr ? tr("OCR") : tr("capa de texto");
     statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt — pasa el puntero por el recuadro para moverlo")
                                  .arg(source, QString::fromStdString(view.fontName))
-                                 .arg(read.fontSize, 0, 'f', 1),
+                                 .arg(overlayPt, 0, 'f', 1),
                              8000);
 }
 
@@ -761,15 +767,15 @@ void MainWindow::commitRegionEdit(const QString& text) {
     }
     bool moved = false;
     if (auto dest = canvas_->selectedRegion()) {
-        moved = std::fabs(dest->x - region_.bounds.x) > 0.4f ||
-                std::fabs(dest->y - region_.bounds.y) > 0.4f;
+        const pdfforge::RectF anchor = !region_.marquee.empty() ? region_.marquee : region_.bounds;
+        moved = std::fabs(dest->x - anchor.x) > 0.4f || std::fabs(dest->y - anchor.y) > 0.4f;
     }
     if (text.toStdString() == region_.text && !moved) {
         return;
     }
     const QColor color = QColor::fromRgbF(region_.color.toRgb().c0, region_.color.toRgb().c1,
                                           region_.color.toRgb().c2, region_.color.toRgb().alpha);
-    applySpanEdits(text, region_.fontSize, color);
+    applySpanEdits(text, pdfforge::overlayFontSizePt(region_), color);
 }
 
 void MainWindow::runOcr() {

@@ -525,3 +525,47 @@ TEST(ReplaceRegionMovesTextToDestination) {
     CHECK(contains(reopened->extractPlainText(page), "MOVEDTEXT"));
     CHECK(!contains(reopened->extractPlainText(page), "MOVEORIGIN"));
 }
+
+TEST(OverlayFontUsesMarqueeHeightNotTinyTextLayer) {
+    pdfforge::RegionRead read;
+    read.fontSize = 12.5f;
+    read.marquee = {80.0f, 400.0f, 260.0f, 36.0f};
+    read.bounds = {90.0f, 412.0f, 70.0f, 10.0f};
+    const float overlay = pdfforge::overlayFontSizePt(read);
+    CHECK(overlay >= read.marquee.height * 0.80f);
+    CHECK(overlay > read.fontSize * 2.0f);
+    CHECK(overlay <= 200.0f);
+}
+
+TEST(OverlayFontKeepsNativeSizeWhenMarqueeIsTight) {
+    pdfforge::RegionRead read;
+    read.fontSize = 12.0f;
+    read.marquee = {10.0f, 10.0f, 80.0f, 14.0f};
+    read.bounds = {10.0f, 10.0f, 80.0f, 12.0f};
+    const float overlay = pdfforge::overlayFontSizePt(read);
+    CHECK(overlay >= 12.0f);
+    CHECK(overlay < 16.0f);
+}
+
+TEST(RecognizeRegionKeepsDrawnMarqueeForOverlaySize) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-marquee-keep");
+    const auto src = copyFixture("TEST_01_SIMPLE_TEXT.pdf", srcTmp);
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    pdfforge::TextSpan target;
+    for (const auto& s : doc->extractText(0)) {
+        if (!s.text.empty()) {
+            target = s;
+            break;
+        }
+    }
+    CHECK(!target.text.empty());
+    const pdfforge::RectF marquee{target.x - 8.0f, target.y - 20.0f, target.width + 80.0f,
+                                  std::max(36.0f, target.height + 24.0f)};
+    const auto read = pdfforge::recognizeRegion(*doc, 0, marquee);
+    CHECK(!read.marquee.empty());
+    CHECK(std::fabs(read.marquee.width - marquee.width) < 0.5f);
+    CHECK(std::fabs(read.marquee.height - marquee.height) < 0.5f);
+    const float overlay = pdfforge::overlayFontSizePt(read);
+    CHECK(overlay >= marquee.height * 0.80f);
+}

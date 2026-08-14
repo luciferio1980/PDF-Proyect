@@ -257,4 +257,16 @@ RegionRead recognizeRegion(PdfDocument& document, int pageIndex, RectF pageRect)
     return out;
 }
 
+float overlayFontSizePt(const RegionRead& read) {
+    const RectF box = !read.marquee.empty() ? read.marquee : read.bounds;
+    const float recognized = read.fontSize > 0.0f ? read.fontSize : 12.0f;
+    if (box.height <= 1.0f) {
+        return recognized;
+    }
+    // Fill most of the drawn box. Mixed diplomas often have a tiny text
+    // layer (e.g. 12.5 pt) under much larger painted letters.
+    const float fromBox = box.height * 0.82f;
+    return std::min(200.0f, std::max(recognized, fromBox));
+}
+
 }  // namespace pdfforge

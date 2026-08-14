@@ -53,7 +53,7 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     applyBtn_ = new QPushButton(tr("Apply to PDF"), textBox);
     deleteBtn_ = new QPushButton(tr("Delete object"), textBox);
     hintLabel_ = new QLabel(
-        tr("Arrastra un recuadro sobre el texto. Pasa el puntero por la línea de selección para moverlo. Al aplicar, se borra lo de detrás y se escribe el texto nuevo."),
+        tr("Arrastra un recuadro sobre el texto. El recuadro y el texto se quedan al tamaño que dibujaste. Pasa el puntero por la línea de selección para moverlo. Al aplicar, se borra lo de detrás y se escribe el texto nuevo."),
         textBox);
     hintLabel_->setWordWrap(true);
     hintLabel_->setStyleSheet(QStringLiteral("color: #9A9488; font-size: 11px;"));

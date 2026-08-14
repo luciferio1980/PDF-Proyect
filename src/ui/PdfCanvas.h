@@ -101,7 +101,9 @@ private:
     QRectF regionWidgetRect() const;
     bool hitsRegionMoveHandle(const QPoint& widgetPos) const;
     QRect regionEditorRect() const;
+    int pdfFontPixelSize() const;
     int editorFontPixelSize() const;
+    void applyEditorFont(int pixelSize);
     void fitRegionToFont();
     void startRegionMove(const QPoint& widgetPos);
     void stopRegionMove();

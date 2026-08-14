@@ -122,6 +122,8 @@ PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
     editor_->hide();
     editor_->setFrame(false);
     editor_->setAutoFillBackground(true);
+    editor_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    editor_->setTextMargins(0, 0, 0, 0);
     editor_->setMouseTracking(true);
     editor_->setCursor(Qt::IBeamCursor);
     editor_->installEventFilter(this);
@@ -605,7 +607,7 @@ QRect PdfCanvas::regionEditorRect() const {
     if (box.isEmpty()) {
         return {};
     }
-    constexpr int kPad = 6;
+    constexpr int kPad = 2;
     QRect inner = box.adjusted(kPad, kPad, -kPad, -kPad);
     if (inner.width() < 16) {
         inner.setLeft(box.left() + 2);
@@ -618,9 +620,40 @@ QRect PdfCanvas::regionEditorRect() const {
     return inner;
 }
 
-int PdfCanvas::editorFontPixelSize() const {
+int PdfCanvas::pdfFontPixelSize() const {
     const float pt = regionFontSize_ > 0.0f ? regionFontSize_ : 12.0f;
     return std::max(8, static_cast<int>(std::lround(pt * dpi() / 72.0f)));
+}
+
+int PdfCanvas::editorFontPixelSize() const {
+    const int fromPdf = pdfFontPixelSize();
+    const QRect inner = regionEditorRect();
+    if (inner.height() <= 4) {
+        return fromPdf;
+    }
+    // Size glyphs to the selection the user drew, never to a tiny text layer.
+    const int fromBox = std::max(8, static_cast<int>(std::lround(inner.height() * 0.90)));
+    return std::max(fromPdf, fromBox);
+}
+
+void PdfCanvas::applyEditorFont(int pixelSize) {
+    pixelSize = std::max(8, pixelSize);
+    QFont font = editor_->font();
+    font.setPixelSize(pixelSize);
+    font.setHintingPreference(QFont::PreferFullHinting);
+    editor_->setFont(font);
+    // The app theme sets QWidget { font-size: 13px }, which otherwise wins over
+    // QFont::setPixelSize and shrinks the overlay to unreadable type.
+    editor_->setStyleSheet(QStringLiteral(
+        "QLineEdit#pdfInlineEditor {"
+        "  font-size: %1px;"
+        "  padding: 0px;"
+        "  margin: 0px;"
+        "  border: none;"
+        "  background: #F4F1EA;"
+        "  color: #1B1814;"
+        "}")
+                               .arg(pixelSize));
 }
 
 void PdfCanvas::fitRegionToFont() {
@@ -631,28 +664,21 @@ void PdfCanvas::fitRegionToFont() {
     if (widgetBox.isEmpty()) {
         return;
     }
+    // Never shrink the drawn box. Do not grow height from the overlay font
+    // (that size is derived from the box and would feed back). Grow width
+    // so a long name is not compressed.
     QFont font = editor_->font();
     font.setPixelSize(editorFontPixelSize());
     const QFontMetrics fm(font);
-    constexpr int kPad = 6;
-    const int needH = fm.height() + kPad * 2 + 2;
+    constexpr int kPad = 2;
     int needW = fm.horizontalAdvance(regionText_) + kPad * 2 + 8;
     needW = std::max(needW, fm.averageCharWidth() * 4 + kPad * 2);
-    float extraW = 0.0f;
-    float extraH = 0.0f;
-    if (widgetBox.height() < static_cast<qreal>(needH)) {
-        extraH = static_cast<float>(needH) - static_cast<float>(widgetBox.height());
-    }
-    if (widgetBox.width() < static_cast<qreal>(needW)) {
-        extraW = static_cast<float>(needW) - static_cast<float>(widgetBox.width());
-    }
-    if (extraW <= 0.0f && extraH <= 0.0f) {
+    if (widgetBox.width() >= static_cast<qreal>(needW)) {
         return;
     }
+    const float extraW = static_cast<float>(needW) - static_cast<float>(widgetBox.width());
     const float sx = regionRect_.width / std::max(1.0f, static_cast<float>(widgetBox.width()));
-    const float sy = regionRect_.height / std::max(1.0f, static_cast<float>(widgetBox.height()));
     regionRect_.width += extraW * sx;
-    regionRect_.height += extraH * sy;
     clampRegionToPage();
 }
 
@@ -751,10 +777,7 @@ void PdfCanvas::syncEditorGeometry() {
     if (rect.isEmpty()) {
         return;
     }
-    int pixelSize = editorFontPixelSize();
-    QFont font = editor_->font();
-    font.setPixelSize(pixelSize);
-    editor_->setFont(font);
+    applyEditorFont(editorFontPixelSize());
     editor_->setGeometry(rect);
     syncRegionFrame();
 }
@@ -786,9 +809,7 @@ void PdfCanvas::beginInlineEdit() {
     } else {
         return;
     }
-    QFont font = editor_->font();
-    font.setPixelSize(pixelSize);
-    editor_->setFont(font);
+    applyEditorFont(pixelSize);
     editor_->setGeometry(rect);
     editor_->setText(text);
     editor_->show();

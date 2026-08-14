@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(PDFForge
-    VERSION 0.2.11
+    VERSION 0.2.12
     DESCRIPTION "Independent professional PDF editor"
     LANGUAGES CXX
 )
