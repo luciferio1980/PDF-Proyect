@@ -4,6 +4,7 @@
 #include "pdf/PdfDocument.h"
 #include "ui/Theme.h"
 
+#include <QCursor>
 #include <QEvent>
 #include <QFont>
 #include <QKeyEvent>
@@ -12,18 +13,24 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPen>
+#include <QPixmap>
 #include <QPoint>
+#include <QPolygon>
 #include <QRect>
 #include <QRectF>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QWidget>
 
 #include <algorithm>
 #include <cmath>
 
 namespace pdfforge::ui {
 namespace {
+
+constexpr QColor kSelectBlue{0x1A, 0x73, 0xE8};
+constexpr int kHandlePad = 6;
 
 QImage bitmapToImage(const pdfforge::Bitmap& bitmap) {
     if (bitmap.empty()) {
@@ -34,6 +41,71 @@ QImage bitmapToImage(const pdfforge::Bitmap& bitmap) {
     return img.copy();
 }
 
+QCursor fourArrowCursor() {
+    static const QCursor kCursor = []() {
+        QPixmap pm(32, 32);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        const QPoint c(15, 15);
+        auto drawArrows = [&](const QColor& color, int width) {
+            p.setPen(QPen(color, width, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+            p.drawLine(QPoint(c.x(), 3), QPoint(c.x(), 27));
+            p.drawLine(QPoint(3, c.y()), QPoint(27, c.y()));
+            p.setBrush(color);
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(QPolygon() << QPoint(c.x(), 1) << QPoint(c.x() - 5, 8)
+                                    << QPoint(c.x() + 5, 8));
+            p.drawPolygon(QPolygon() << QPoint(c.x(), 29) << QPoint(c.x() - 5, 22)
+                                    << QPoint(c.x() + 5, 22));
+            p.drawPolygon(QPolygon() << QPoint(1, c.y()) << QPoint(8, c.y() - 5)
+                                    << QPoint(8, c.y() + 5));
+            p.drawPolygon(QPolygon() << QPoint(29, c.y()) << QPoint(22, c.y() - 5)
+                                    << QPoint(22, c.y() + 5));
+        };
+        drawArrows(Qt::white, 5);
+        drawArrows(Qt::black, 3);
+        p.end();
+        return QCursor(pm, 15, 15);
+    }();
+    return kCursor;
+}
+
+class RegionFrame final : public QWidget {
+public:
+    explicit RegionFrame(QWidget* parent) : QWidget(parent) {
+        setMouseTracking(true);
+        setAutoFillBackground(false);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+        setCursor(fourArrowCursor());
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        const QRect box = rect().adjusted(kHandlePad, kHandlePad, -kHandlePad, -kHandlePad);
+        p.setPen(QPen(kSelectBlue, 1));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(box.adjusted(0, 0, -1, -1));
+        const QPoint pts[] = {
+            box.topLeft(),
+            box.topRight() - QPoint(1, 0),
+            box.bottomLeft() - QPoint(0, 1),
+            box.bottomRight() - QPoint(1, 1),
+            QPoint(box.center().x(), box.top()),
+            QPoint(box.center().x(), box.bottom() - 1),
+            QPoint(box.left(), box.center().y()),
+            QPoint(box.right() - 1, box.center().y()),
+        };
+        p.setBrush(kSelectBlue);
+        p.setPen(QPen(Qt::white, 1));
+        for (const QPoint& pt : pts) {
+            p.drawRect(QRect(pt.x() - 3, pt.y() - 3, 7, 7));
+        }
+    }
+};
+
 }  // namespace
 
 PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
@@ -41,6 +113,9 @@ PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(200, 200);
     setAutoFillBackground(false);
+    regionFrame_ = new RegionFrame(this);
+    regionFrame_->hide();
+    regionFrame_->installEventFilter(this);
     editor_ = new QLineEdit(this);
     editor_->setObjectName(QStringLiteral("pdfInlineEditor"));
     editor_->hide();
@@ -49,6 +124,7 @@ PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
     editor_->setMouseTracking(true);
     editor_->setCursor(Qt::IBeamCursor);
     editor_->installEventFilter(this);
+    editor_->raise();
     connect(editor_, &QLineEdit::returnPressed, this, [this]() { finishInlineEdit(true); });
 }
 
@@ -255,6 +331,7 @@ void PdfCanvas::setRegionSelection(const pdfforge::RectF& pageRect, const QStrin
     regionText_ = text;
     hasRegion_ = !pageRect.empty();
     selectedSpan_ = -1;
+    syncRegionFrame();
     update();
 }
 
@@ -263,6 +340,7 @@ void PdfCanvas::clearRegionSelection() {
     hasRegion_ = false;
     regionText_.clear();
     marqueeDrag_ = false;
+    syncRegionFrame();
     update();
 }
 
@@ -324,6 +402,7 @@ void PdfCanvas::requestRender() {
         emit statusMessage(QString::fromStdString(ex.userMessage()));
     }
     update();
+    syncRegionFrame();
 }
 
 void PdfCanvas::applyBitmap(const pdfforge::Bitmap& bitmap) {
@@ -521,17 +600,39 @@ QRect PdfCanvas::regionEditorRect() const {
     if (box.isEmpty()) {
         return {};
     }
-    const int pad = (box.height() < 22 || box.width() < 48) ? 3 : 7;
+    const int pad = (box.height() < 28 || box.width() < 56) ? 5 : 10;
     QRect inner = box.adjusted(pad, pad, -pad, -pad);
     if (inner.width() < 16) {
-        inner.setLeft(box.left() + 1);
-        inner.setWidth(std::max(16, box.width() - 2));
+        inner.setLeft(box.left() + 2);
+        inner.setWidth(std::max(16, box.width() - 4));
     }
     if (inner.height() < 12) {
-        inner.setTop(box.top() + 1);
-        inner.setHeight(std::max(12, box.height() - 2));
+        inner.setTop(box.top() + 2);
+        inner.setHeight(std::max(12, box.height() - 4));
     }
     return inner;
+}
+
+void PdfCanvas::syncRegionFrame() {
+    if (!regionFrame_) {
+        return;
+    }
+    if (!hasRegion_ || signWorkspace_ || placeStampMode_) {
+        regionFrame_->hide();
+        return;
+    }
+    const QRect box = regionWidgetRect().toRect();
+    if (box.isEmpty()) {
+        regionFrame_->hide();
+        return;
+    }
+    regionFrame_->setGeometry(box.adjusted(-kHandlePad, -kHandlePad, kHandlePad, kHandlePad));
+    regionFrame_->setCursor(fourArrowCursor());
+    regionFrame_->show();
+    regionFrame_->raise();
+    if (editor_->isVisible()) {
+        editor_->raise();
+    }
 }
 
 bool PdfCanvas::hitsRegionMoveHandle(const QPoint& widgetPos) const {
@@ -562,9 +663,12 @@ void PdfCanvas::startRegionMove(const QPoint& widgetPos) {
     }
     movingRegion_ = true;
     moveLastPage_ = page;
-    setCursor(Qt::SizeAllCursor);
+    setCursor(fourArrowCursor());
+    if (regionFrame_) {
+        regionFrame_->setCursor(fourArrowCursor());
+    }
     if (editor_->isVisible()) {
-        editor_->setCursor(Qt::SizeAllCursor);
+        editor_->setCursor(fourArrowCursor());
     }
     grabMouse();
 }
@@ -576,6 +680,10 @@ void PdfCanvas::stopRegionMove() {
     movingRegion_ = false;
     if (mouseGrabber() == this) {
         releaseMouse();
+    }
+    setCursor(hasRegion_ ? fourArrowCursor() : Qt::ArrowCursor);
+    if (regionFrame_) {
+        regionFrame_->setCursor(fourArrowCursor());
     }
     if (editor_->isVisible()) {
         editor_->setCursor(Qt::IBeamCursor);
@@ -605,6 +713,7 @@ void PdfCanvas::syncEditorGeometry() {
     font.setPixelSize(pixelSize);
     editor_->setFont(font);
     editor_->setGeometry(rect);
+    syncRegionFrame();
 }
 
 void PdfCanvas::beginInlineEdit() {
@@ -641,6 +750,7 @@ void PdfCanvas::beginInlineEdit() {
     editor_->show();
     editor_->setFocus();
     editor_->selectAll();
+    syncRegionFrame();
 }
 
 void PdfCanvas::finishInlineEdit(bool commit) {
@@ -676,6 +786,7 @@ void PdfCanvas::cancelInlineEdit() {
         editor_->hide();
         editingSpan_ = -1;
     }
+    syncRegionFrame();
 }
 
 void PdfCanvas::paintEvent(QPaintEvent*) {
@@ -746,14 +857,6 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
         }
     }
 
-    if (hasRegion_ && !placeStampMode_ && !signWorkspace_) {
-        const QPolygonF poly = spanPolygon(regionRect_);
-        if (!poly.isEmpty()) {
-            p.setBrush(Qt::NoBrush);
-            p.setPen(QPen(theme().copper, 2));
-            p.drawPolygon(poly);
-        }
-    }
     if (marqueeDrag_ && !signWorkspace_ && !placeStampMode_) {
         const QRect box = QRect(marqueeOrigin_, lastMouse_).normalized();
         QColor fill = theme().copper;
@@ -845,12 +948,12 @@ void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
             syncEditorGeometry();
             update();
         }
-        setCursor(Qt::SizeAllCursor);
+        setCursor(fourArrowCursor());
         return;
     }
     if (!signWorkspace_ && !placeStampMode_) {
         if (hitsRegionMoveHandle(event->pos())) {
-            setCursor(Qt::SizeAllCursor);
+            setCursor(fourArrowCursor());
         } else {
             setCursor(Qt::CrossCursor);
         }
@@ -1054,12 +1157,26 @@ void PdfCanvas::keyPressEvent(QKeyEvent* event) {
 }
 
 bool PdfCanvas::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == regionFrame_) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            const auto* mouse = static_cast<QMouseEvent*>(event);
+            if (mouse->button() == Qt::LeftButton) {
+                startRegionMove(regionFrame_->mapToParent(mouse->pos()));
+                return true;
+            }
+        }
+        if (event->type() == QEvent::Enter || event->type() == QEvent::MouseMove) {
+            regionFrame_->setCursor(fourArrowCursor());
+            setCursor(fourArrowCursor());
+        }
+        return false;
+    }
     if (watched == editor_) {
         if (event->type() == QEvent::MouseMove || event->type() == QEvent::MouseButtonPress) {
             const auto* mouse = static_cast<QMouseEvent*>(event);
             const QPoint onCanvas = editor_->mapToParent(mouse->pos());
             if (event->type() == QEvent::MouseMove && !movingRegion_) {
-                editor_->setCursor(hitsRegionMoveHandle(onCanvas) ? Qt::SizeAllCursor
+                editor_->setCursor(hitsRegionMoveHandle(onCanvas) ? fourArrowCursor()
                                                                  : Qt::IBeamCursor);
             }
             if (event->type() == QEvent::MouseButtonPress && mouse->button() == Qt::LeftButton &&

@@ -11,6 +11,7 @@
 #include <vector>
 
 class QLineEdit;
+class QWidget;
 
 namespace pdfforge {
 class PdfDocument;
@@ -103,6 +104,7 @@ private:
     void stopRegionMove();
     void syncEditorGeometry();
     void clampRegionToPage();
+    void syncRegionFrame();
     pdfforge::RectF resizedSignatureRect(StampHandle handle, const pdfforge::PointF& page) const;
     void finishInlineEdit(bool commit);
     void cancelInlineEdit();
@@ -137,6 +139,7 @@ private:
     pdfforge::RectF regionRect_{};
     pdfforge::PointF moveLastPage_{};
     QString regionText_;
+    QWidget* regionFrame_ = nullptr;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;
     bool committing_ = false;

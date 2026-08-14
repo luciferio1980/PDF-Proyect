@@ -12,7 +12,7 @@ an official alternative to any other vendor.
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.9-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.10-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 The app starts on a home menu: Edit PDF or Sign PDF. Do not run the exe from inside the zip.

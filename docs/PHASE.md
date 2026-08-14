@@ -13,6 +13,7 @@ Completed:
 - Text replace regenerates the original content stream so new glyphs do not stack on the old ones
 - Region apply deletes intersecting text objects and covers leftover image pixels in the selection
 - The text edit box can be dragged from its selection outline (four-arrow cursor)
+- Selected text uses an Acrobat-style box: hover the border, four-arrow cursor, drag to move
 - View menu toggles the Inspector dock
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF
