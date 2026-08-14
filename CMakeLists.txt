@@ -127,6 +127,7 @@ endif()
 
 if(MSVC)
     target_compile_options(pdfforge_core PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus)
+    target_compile_definitions(pdfforge_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(pdfforge_core PRIVATE -Wall -Wextra -Wpedantic -Wshadow)
 endif()
