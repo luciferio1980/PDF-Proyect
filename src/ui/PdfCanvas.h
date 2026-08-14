@@ -30,6 +30,8 @@ public:
     void setSearchHits(const std::vector<pdfforge::SearchHit>& hits, int activeIndex);
     void reload();
     void setAddTextMode(bool enabled);
+    void setPlaceStampMode(bool enabled);
+    void setStampPreview(const QImage& image, float widthPt);
     void beginInlineEdit();
     void clearSelection();
 
@@ -39,6 +41,7 @@ public:
     [[nodiscard]] float dpi() const;
     [[nodiscard]] std::optional<pdfforge::TextSpan> selectedSpan() const;
     [[nodiscard]] bool addTextMode() const { return addTextMode_; }
+    [[nodiscard]] bool placeStampMode() const { return placeStampMode_; }
 
 public slots:
     void zoomIn();
@@ -52,6 +55,7 @@ signals:
     void selectionCleared();
     void spanEditCommitted(const pdfforge::TextSpan& span, const QString& text);
     void emptyPageClicked(const pdfforge::PointF& pagePoint);
+    void stampPlaced(const pdfforge::PointF& pagePoint);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -86,6 +90,10 @@ private:
     int hoverSpan_ = -1;
     int selectedSpan_ = -1;
     bool addTextMode_ = false;
+    bool placeStampMode_ = false;
+    QImage stampPreview_;
+    float stampWidthPt_ = 144.0f;
+    QPoint lastMouse_;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;
     bool committing_ = false;

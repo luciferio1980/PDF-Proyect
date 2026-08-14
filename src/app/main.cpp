@@ -7,8 +7,6 @@
 
 #include <QApplication>
 #include <QCoreApplication>
-#include <QDir>
-#include <QFileInfo>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <QString>
@@ -109,13 +107,7 @@ int main(int argc, char** argv) {
         pdfforge::ui::MainWindow window;
         window.show();
         if (argc > 1) {
-            window.openPath(QString::fromLocal8Bit(argv[1]));
-        } else {
-            const QString sample =
-                QDir(exeDirQt).filePath(QStringLiteral("test_documents/TEST_01_SIMPLE_TEXT.pdf"));
-            if (QFileInfo::exists(sample)) {
-                window.openPath(sample);
-            }
+            window.openPathForEdit(QString::fromLocal8Bit(argv[1]));
         }
         writeStartupLog(exeDir, "event loop");
         return app.exec();

@@ -6,15 +6,18 @@
 #include "model/PageClassification.h"
 #include "ocr/OcrEngine.h"
 #include "pdf/PdfSearch.h"
+#include "ui/HomeView.h"
 #include "ui/InspectorPanel.h"
 #include "ui/PdfCanvas.h"
 #include "ui/SearchPanel.h"
+#include "ui/SignaturePad.h"
 #include "ui/ThumbnailPane.h"
 
 #include <QAction>
 #include <QCloseEvent>
 #include <QColor>
 #include <QDockWidget>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
@@ -23,7 +26,10 @@
 #include <QLineEdit>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QRect>
+#include <QRgb>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -31,6 +37,57 @@
 #include <algorithm>
 
 namespace pdfforge::ui {
+namespace {
+
+pdfforge::Bitmap qImageToBitmap(QImage image) {
+    if (image.isNull()) {
+        return {};
+    }
+    if (image.width() > 2000 || image.height() > 2000) {
+        image = image.scaled(2000, 2000, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+    image = image.convertToFormat(QImage::Format_ARGB32);
+    pdfforge::Bitmap out;
+    out.width = image.width();
+    out.height = image.height();
+    out.stride = image.bytesPerLine();
+    const auto* bits = image.constBits();
+    out.bgra.assign(bits, bits + static_cast<std::size_t>(out.stride) * static_cast<std::size_t>(out.height));
+    return out;
+}
+
+QImage cropToInk(const QImage& image) {
+    if (image.isNull()) {
+        return {};
+    }
+    const QImage src = image.convertToFormat(QImage::Format_ARGB32);
+    int minX = src.width();
+    int minY = src.height();
+    int maxX = -1;
+    int maxY = -1;
+    for (int y = 0; y < src.height(); ++y) {
+        const auto* line = reinterpret_cast<const QRgb*>(src.constScanLine(y));
+        for (int x = 0; x < src.width(); ++x) {
+            if (qAlpha(line[x]) > 20) {
+                minX = std::min(minX, x);
+                minY = std::min(minY, y);
+                maxX = std::max(maxX, x);
+                maxY = std::max(maxY, y);
+            }
+        }
+    }
+    if (maxX < minX) {
+        return {};
+    }
+    constexpr int kPad = 8;
+    const int left = std::max(0, minX - kPad);
+    const int top = std::max(0, minY - kPad);
+    const int right = std::min(src.width() - 1, maxX + kPad);
+    const int bottom = std::min(src.height() - 1, maxY + kPad);
+    return src.copy(QRect(left, top, right - left + 1, bottom - top + 1));
+}
+
+}  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     runtime_ = pdfforge::PdfiumRuntime::acquire();
@@ -39,57 +96,79 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     resize(1440, 900);
     buildUi();
     buildMenus();
+    setWorkspace(Workspace::Home);
     statusBar()->showMessage(
         QString::fromUtf8(pdfforge::kProductTagline.data(),
                           static_cast<int>(pdfforge::kProductTagline.size())));
 }
 
 void MainWindow::buildUi() {
-    auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    search_ = new SearchPanel(central);
-    canvas_ = new PdfCanvas(central);
-    layout->addWidget(search_);
-    layout->addWidget(canvas_, 1);
-    setCentralWidget(central);
+    stack_ = new QStackedWidget(this);
+    home_ = new HomeView(stack_);
+    workPage_ = new QWidget(stack_);
+    auto* workLayout = new QVBoxLayout(workPage_);
+    workLayout->setContentsMargins(0, 0, 0, 0);
+    workLayout->setSpacing(0);
+    search_ = new SearchPanel(workPage_);
+    canvas_ = new PdfCanvas(workPage_);
+    workLayout->addWidget(search_);
+    workLayout->addWidget(canvas_, 1);
+    stack_->addWidget(home_);
+    stack_->addWidget(workPage_);
+    setCentralWidget(stack_);
 
     thumbs_ = new ThumbnailPane(this);
-    auto* pagesDock = new QDockWidget(tr("Pages"), this);
-    pagesDock->setObjectName(QStringLiteral("pagesDock"));
-    pagesDock->setWidget(thumbs_);
-    addDockWidget(Qt::LeftDockWidgetArea, pagesDock);
+    pagesDock_ = new QDockWidget(tr("Pages"), this);
+    pagesDock_->setObjectName(QStringLiteral("pagesDock"));
+    pagesDock_->setWidget(thumbs_);
+    addDockWidget(Qt::LeftDockWidgetArea, pagesDock_);
 
     inspector_ = new InspectorPanel(this);
     inspector_->setOcrAvailable(pdfforge::OcrEngine::available());
-    auto* inspectDock = new QDockWidget(tr("Inspector"), this);
-    inspectDock->setObjectName(QStringLiteral("inspectorDock"));
-    inspectDock->setWidget(inspector_);
-    addDockWidget(Qt::RightDockWidgetArea, inspectDock);
+    inspectorDock_ = new QDockWidget(tr("Inspector"), this);
+    inspectorDock_->setObjectName(QStringLiteral("inspectorDock"));
+    inspectorDock_->setWidget(inspector_);
+    addDockWidget(Qt::RightDockWidgetArea, inspectorDock_);
 
-    auto* toolbar = addToolBar(tr("Document"));
-    toolbar->setMovable(false);
-    toolbar->addAction(tr("Open"), this, &MainWindow::openFile);
-    toolbar->addAction(tr("Save"), this, &MainWindow::saveDocument);
-    toolbar->addSeparator();
-    pageSpin_ = new QSpinBox(toolbar);
+    auto* nav = addToolBar(tr("Document"));
+    nav->setObjectName(QStringLiteral("navBar"));
+    nav->setMovable(false);
+    nav->addAction(tr("Inicio"), this, &MainWindow::showHome);
+    nav->addAction(tr("Open"), this, &MainWindow::openFile);
+    nav->addAction(tr("Save"), this, &MainWindow::saveDocument);
+    nav->addSeparator();
+    pageSpin_ = new QSpinBox(nav);
     pageSpin_->setMinimum(1);
     pageSpin_->setMaximum(1);
-    pageTotal_ = new QLabel(tr("/ 0"), toolbar);
-    toolbar->addWidget(pageSpin_);
-    toolbar->addWidget(pageTotal_);
-    toolbar->addSeparator();
-    toolbar->addAction(tr("Zoom +"), canvas_, &PdfCanvas::zoomIn);
-    toolbar->addAction(tr("Zoom −"), canvas_, &PdfCanvas::zoomOut);
-    toolbar->addAction(tr("100%"), canvas_, &PdfCanvas::resetZoom);
-    toolbar->addSeparator();
-    toolbar->addAction(tr("Rotate page"), this, &MainWindow::rotatePageClockwise);
-    addTextAction_ = toolbar->addAction(tr("Add text"));
+    pageTotal_ = new QLabel(tr("/ 0"), nav);
+    nav->addWidget(pageSpin_);
+    nav->addWidget(pageTotal_);
+    nav->addSeparator();
+    nav->addAction(tr("Zoom +"), canvas_, &PdfCanvas::zoomIn);
+    nav->addAction(tr("Zoom −"), canvas_, &PdfCanvas::zoomOut);
+    nav->addAction(tr("100%"), canvas_, &PdfCanvas::resetZoom);
+    navBar_ = nav;
+
+    signBar_ = addToolBar(tr("Sign"));
+    signBar_->setMovable(false);
+    signBar_->addAction(tr("Subir imagen"), this, &MainWindow::loadSignatureImage);
+    signBar_->addAction(tr("Dibujar firma"), this, &MainWindow::drawSignature);
+    signBar_->addSeparator();
+    signBar_->addWidget(new QLabel(tr("Ancho"), signBar_));
+    stampWidthSpin_ = new QDoubleSpinBox(signBar_);
+    stampWidthSpin_->setRange(36.0, 360.0);
+    stampWidthSpin_->setValue(144.0);
+    stampWidthSpin_->setSuffix(QStringLiteral(" pt"));
+    signBar_->addWidget(stampWidthSpin_);
+
+    editBar_ = addToolBar(tr("Edit tools"));
+    editBar_->setMovable(false);
+    editBar_->addAction(tr("Rotate page"), this, &MainWindow::rotatePageClockwise);
+    addTextAction_ = editBar_->addAction(tr("Add text"));
     addTextAction_->setCheckable(true);
-    classLabel_ = new QLabel(toolbar);
-    toolbar->addSeparator();
-    toolbar->addWidget(classLabel_);
+    classLabel_ = new QLabel(editBar_);
+    editBar_->addSeparator();
+    editBar_->addWidget(classLabel_);
 
     connect(pageSpin_, qOverload<int>(&QSpinBox::valueChanged), this, &MainWindow::goToPage);
     connect(thumbs_, &ThumbnailPane::pageActivated, this, [this](int page) {
@@ -111,14 +190,20 @@ void MainWindow::buildUi() {
     connect(canvas_, &PdfCanvas::selectionCleared, inspector_, &InspectorPanel::clearSpan);
     connect(canvas_, &PdfCanvas::spanEditCommitted, this, &MainWindow::commitInlineEdit);
     connect(canvas_, &PdfCanvas::emptyPageClicked, this, &MainWindow::addTextAt);
+    connect(canvas_, &PdfCanvas::stampPlaced, this, &MainWindow::placeSignature);
     connect(addTextAction_, &QAction::toggled, this, &MainWindow::toggleAddText);
     connect(inspector_, &InspectorPanel::applyRequested, this, &MainWindow::applySpanEdits);
     connect(inspector_, &InspectorPanel::deleteRequested, this, &MainWindow::deleteSelectedSpan);
     connect(inspector_, &InspectorPanel::ocrRequested, this, &MainWindow::runOcr);
+    connect(home_, &HomeView::editPdfRequested, this, &MainWindow::startEditPdf);
+    connect(home_, &HomeView::signPdfRequested, this, &MainWindow::startSignPdf);
+    connect(stampWidthSpin_, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double) { applyStampPreview(); });
 }
 
 void MainWindow::buildMenus() {
     auto* file = menuBar()->addMenu(tr("&File"));
+    file->addAction(tr("&Inicio"), this, &MainWindow::showHome);
     file->addAction(tr("&Open…"), QKeySequence::Open, this, &MainWindow::openFile);
     file->addAction(tr("&Save"), QKeySequence::Save, this, &MainWindow::saveDocument);
     file->addAction(tr("Save &As…"), QKeySequence::SaveAs, this, &MainWindow::saveAs);
@@ -162,7 +247,7 @@ void MainWindow::buildMenus() {
     help->addAction(tr("About PDFForge"), this, [this]() {
         QMessageBox::about(this, tr("About PDFForge"),
                            tr("PDFForge %1\nIndependent professional PDF editor.\n"
-                              "Double-click text to edit it. Changes rewrite PDF objects.\n"
+                              "Start from the home menu: Edit PDF or Sign PDF.\n"
                               "Local processing. Telemetry off. JavaScript disabled.")
                                .arg(QString::fromUtf8(pdfforge::kVersionString.data(),
                                                       static_cast<int>(pdfforge::kVersionString.size()))));
@@ -178,16 +263,23 @@ std::filesystem::path MainWindow::toFsPath(const QString& path) const {
 }
 
 void MainWindow::updateTitle() {
+    QString mode;
+    if (workspace_ == Workspace::Edit) {
+        mode = tr("Editar PDF");
+    } else if (workspace_ == Workspace::Sign) {
+        mode = tr("Firmar PDF");
+    }
     if (!document_) {
-        setWindowTitle(QStringLiteral("PDFForge"));
+        setWindowTitle(mode.isEmpty() ? QStringLiteral("PDFForge")
+                                      : QStringLiteral("PDFForge — %1").arg(mode));
         return;
     }
     QString name = QFileInfo(QString::fromStdString(pdfforge::narrowPath(document_->path()))).fileName();
     if (name.isEmpty()) {
         name = tr("Untitled");
     }
-    setWindowTitle(QStringLiteral("PDFForge — %1%2")
-                       .arg(name, document_->dirty() ? QStringLiteral("*") : QString()));
+    setWindowTitle(QStringLiteral("PDFForge — %1 — %2%3")
+                       .arg(mode, name, document_->dirty() ? QStringLiteral("*") : QString()));
     if (undoAction_) {
         undoAction_->setEnabled(document_->canUndo());
     }
@@ -212,6 +304,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 void MainWindow::openFile() {
+    if (workspace_ == Workspace::Home) {
+        startEditPdf();
+        return;
+    }
     if (!confirmDiscard()) {
         return;
     }
@@ -222,6 +318,43 @@ void MainWindow::openFile() {
 }
 
 void MainWindow::openPath(const QString& path) {
+    if (workspace_ == Workspace::Sign) {
+        openPathForSign(path);
+    } else {
+        openPathForEdit(path);
+    }
+}
+
+void MainWindow::openPathForEdit(const QString& path) {
+    try {
+        pdfforge::OpenOptions options;
+        document_ = pdfforge::PdfDocument::open(runtime_, toFsPath(path), options);
+        stampImage_ = {};
+        canvas_->setAddTextMode(false);
+        canvas_->setPlaceStampMode(false);
+        if (addTextAction_) {
+            addTextAction_->setChecked(false);
+        }
+        canvas_->setDocument(document_.get());
+        thumbs_->setDocument(document_.get());
+        pageSpin_->blockSignals(true);
+        pageSpin_->setMaximum(std::max(1, document_->pageCount()));
+        pageSpin_->setValue(1);
+        pageSpin_->blockSignals(false);
+        pageTotal_->setText(tr("/ %1").arg(document_->pageCount()));
+        setWorkspace(Workspace::Edit);
+        refreshPageUi();
+        updateTitle();
+        pdfforge::Logger::instance().info("ui", "opened document for edit");
+    } catch (const pdfforge::Error& ex) {
+        document_.reset();
+        canvas_->setDocument(nullptr);
+        thumbs_->setDocument(nullptr);
+        showError(ex);
+    }
+}
+
+void MainWindow::openPathForSign(const QString& path) {
     try {
         pdfforge::OpenOptions options;
         document_ = pdfforge::PdfDocument::open(runtime_, toFsPath(path), options);
@@ -236,9 +369,11 @@ void MainWindow::openPath(const QString& path) {
         pageSpin_->setValue(1);
         pageSpin_->blockSignals(false);
         pageTotal_->setText(tr("/ %1").arg(document_->pageCount()));
+        setWorkspace(Workspace::Sign);
+        applyStampPreview();
         refreshPageUi();
         updateTitle();
-        pdfforge::Logger::instance().info("ui", "opened document");
+        pdfforge::Logger::instance().info("ui", "opened document for sign");
     } catch (const pdfforge::Error& ex) {
         document_.reset();
         canvas_->setDocument(nullptr);
@@ -578,6 +713,152 @@ void MainWindow::refreshPageUi() {
 void MainWindow::showError(const pdfforge::Error& error) {
     pdfforge::Logger::instance().error("ui", error.technical());
     QMessageBox::warning(this, tr("PDFForge"), QString::fromStdString(error.userMessage()));
+}
+
+void MainWindow::setWorkspace(Workspace workspace) {
+    workspace_ = workspace;
+    const bool home = workspace == Workspace::Home;
+    const bool edit = workspace == Workspace::Edit;
+    const bool sign = workspace == Workspace::Sign;
+    stack_->setCurrentWidget(home ? static_cast<QWidget*>(home_) : workPage_);
+    if (navBar_) {
+        navBar_->setVisible(!home);
+    }
+    if (editBar_) {
+        editBar_->setVisible(edit);
+    }
+    if (signBar_) {
+        signBar_->setVisible(sign);
+    }
+    if (pagesDock_) {
+        pagesDock_->setVisible(!home);
+    }
+    if (inspectorDock_) {
+        inspectorDock_->setVisible(edit);
+    }
+    if (search_) {
+        search_->setVisible(edit);
+    }
+    if (canvas_) {
+        canvas_->setPlaceStampMode(sign && !stampImage_.isNull());
+        if (!sign) {
+            canvas_->setPlaceStampMode(false);
+        }
+        if (!edit && addTextAction_) {
+            addTextAction_->setChecked(false);
+            canvas_->setAddTextMode(false);
+        }
+    }
+    updateTitle();
+}
+
+void MainWindow::showHome() {
+    if (!confirmDiscard()) {
+        return;
+    }
+    document_.reset();
+    stampImage_ = {};
+    if (canvas_) {
+        canvas_->setDocument(nullptr);
+        canvas_->setStampPreview({}, 144.0f);
+        canvas_->setPlaceStampMode(false);
+    }
+    if (thumbs_) {
+        thumbs_->setDocument(nullptr);
+    }
+    setWorkspace(Workspace::Home);
+    statusBar()->showMessage(tr("Elige Editar PDF o Firmar PDF"), 4000);
+}
+
+void MainWindow::startEditPdf() {
+    if (!confirmDiscard()) {
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(this, tr("Abrir PDF para editar"), {},
+                                                      tr("PDF (*.pdf)"));
+    if (!path.isEmpty()) {
+        openPathForEdit(path);
+    }
+}
+
+void MainWindow::startSignPdf() {
+    if (!confirmDiscard()) {
+        return;
+    }
+    const QString path = QFileDialog::getOpenFileName(this, tr("Abrir PDF para firmar"), {},
+                                                      tr("PDF (*.pdf)"));
+    if (!path.isEmpty()) {
+        openPathForSign(path);
+        statusBar()->showMessage(
+            tr("Sube una imagen o dibuja la firma, luego haz clic en la página"), 6000);
+    }
+}
+
+void MainWindow::applyStampPreview() {
+    if (!canvas_ || !stampWidthSpin_) {
+        return;
+    }
+    canvas_->setStampPreview(stampImage_, static_cast<float>(stampWidthSpin_->value()));
+    canvas_->setPlaceStampMode(workspace_ == Workspace::Sign && !stampImage_.isNull());
+}
+
+void MainWindow::loadSignatureImage() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Imagen de firma"), {},
+        tr("Images (*.png *.jpg *.jpeg *.webp *.bmp);;All files (*)"));
+    if (path.isEmpty()) {
+        return;
+    }
+    QImage image(path);
+    if (image.isNull()) {
+        QMessageBox::warning(this, tr("PDFForge"), tr("No se pudo abrir la imagen."));
+        return;
+    }
+    QImage prepared = image.convertToFormat(QImage::Format_ARGB32);
+    if (QImage cropped = cropToInk(prepared); !cropped.isNull()) {
+        prepared = cropped;
+    }
+    stampImage_ = prepared;
+    applyStampPreview();
+    statusBar()->showMessage(tr("Haz clic en la página para colocar la firma"), 5000);
+}
+
+void MainWindow::drawSignature() {
+    SignaturePad pad(this);
+    if (pad.exec() != QDialog::Accepted) {
+        return;
+    }
+    const QImage drawn = cropToInk(pad.signatureImage());
+    if (drawn.isNull()) {
+        QMessageBox::information(this, tr("PDFForge"), tr("No hay trazo en la firma."));
+        return;
+    }
+    stampImage_ = drawn;
+    applyStampPreview();
+    statusBar()->showMessage(tr("Haz clic en la página para colocar la firma"), 5000);
+}
+
+void MainWindow::placeSignature(const pdfforge::PointF& pagePoint) {
+    if (!document_ || stampImage_.isNull() || !stampWidthSpin_) {
+        return;
+    }
+    const pdfforge::Bitmap bitmap = qImageToBitmap(stampImage_);
+    if (bitmap.empty()) {
+        return;
+    }
+    const float width = static_cast<float>(stampWidthSpin_->value());
+    const float height =
+        width * static_cast<float>(bitmap.height) / static_cast<float>(std::max(1, bitmap.width));
+    const pdfforge::RectF rect{pagePoint.x - width * 0.5f, pagePoint.y - height * 0.5f, width,
+                               height};
+    try {
+        document_->addImage(canvas_->pageIndex(), rect, bitmap);
+        refreshAfterMutation(false);
+        thumbs_->refreshPage(canvas_->pageIndex());
+        statusBar()->showMessage(tr("Firma colocada — Save para escribir el archivo"), 5000);
+    } catch (const pdfforge::Error& ex) {
+        showError(ex);
+    }
 }
 
 }  // namespace pdfforge::ui

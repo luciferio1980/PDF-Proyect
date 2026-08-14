@@ -10,6 +10,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPen>
+#include <QPoint>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QWheelEvent>
@@ -111,7 +113,28 @@ void PdfCanvas::reload() {
 
 void PdfCanvas::setAddTextMode(bool enabled) {
     addTextMode_ = enabled;
+    if (enabled) {
+        placeStampMode_ = false;
+    }
     setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
+}
+
+void PdfCanvas::setPlaceStampMode(bool enabled) {
+    placeStampMode_ = enabled;
+    if (enabled) {
+        addTextMode_ = false;
+        cancelInlineEdit();
+        selectedSpan_ = -1;
+        hoverSpan_ = -1;
+    }
+    setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
+    update();
+}
+
+void PdfCanvas::setStampPreview(const QImage& image, float widthPt) {
+    stampPreview_ = image;
+    stampWidthPt_ = std::max(8.0f, widthPt);
+    update();
 }
 
 void PdfCanvas::clearSelection() {
@@ -310,6 +333,26 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
             p.drawPolygon(cover);
         }
     }
+    if (placeStampMode_ && !stampPreview_.isNull() && document_ && !image_.isNull()) {
+        pdfforge::PointF page;
+        if (widgetToPage(lastMouse_, page) && stampPreview_.width() > 0) {
+            const float heightPt =
+                stampWidthPt_ * static_cast<float>(stampPreview_.height()) /
+                static_cast<float>(stampPreview_.width());
+            const pdfforge::RectF bounds{page.x - stampWidthPt_ * 0.5f, page.y - heightPt * 0.5f,
+                                         stampWidthPt_, heightPt};
+            const QPolygonF poly = spanPolygon(bounds);
+            if (!poly.isEmpty()) {
+                const QRectF box = poly.boundingRect();
+                p.setOpacity(0.72);
+                p.drawImage(box, stampPreview_);
+                p.setOpacity(1.0);
+                p.setBrush(Qt::NoBrush);
+                p.setPen(QPen(theme().copper, 1, Qt::DashLine));
+                p.drawRect(box);
+            }
+        }
+    }
 
     const auto drawPoly = [&](const pdfforge::RectF& bounds, const QColor& fill, const QColor& stroke) {
         const QPolygonF poly = spanPolygon(bounds);
@@ -352,6 +395,12 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
 }
 
 void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
+    lastMouse_ = event->pos();
+    if (placeStampMode_) {
+        setCursor(Qt::CrossCursor);
+        update();
+        return;
+    }
     if (addTextMode_) {
         setCursor(Qt::CrossCursor);
         return;
@@ -374,6 +423,13 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
         return;
     }
     finishInlineEdit(true);
+    if (placeStampMode_) {
+        pdfforge::PointF page;
+        if (widgetToPage(event->pos(), page)) {
+            emit stampPlaced(page);
+        }
+        return;
+    }
     if (addTextMode_) {
         pdfforge::PointF page;
         if (widgetToPage(event->pos(), page)) {
@@ -392,7 +448,7 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
 }
 
 void PdfCanvas::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (event->button() != Qt::LeftButton) {
+    if (event->button() != Qt::LeftButton || placeStampMode_) {
         return;
     }
     const int hit = hitSpanAt(event->pos());

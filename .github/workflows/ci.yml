@@ -68,14 +68,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.3-alpha
-          name: PDFForge Alpha 0.2.3
+          tag_name: v0.2.4-alpha
+          name: PDFForge Alpha 0.2.4
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.3.
+            Portable Windows build of PDFForge Alpha 0.2.4.
 
-            Text edits now remove every PDF text run in the selected line
-            (Word-style split Tj operators and Form XObjects) so the new
-            string replaces the old one instead of drawing on top of it.
+            The app now starts on a home menu: Edit PDF or Sign PDF.
+            Signatures can be an uploaded image or drawn with the mouse,
+            then placed on the page with a click.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

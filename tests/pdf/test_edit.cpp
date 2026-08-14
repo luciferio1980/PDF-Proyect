@@ -268,3 +268,34 @@ TEST(EditReplacesTextInsideFormXObject) {
     const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(!contains(saved, "Hello FormText"));
 }
+
+TEST(AddImageStampSurvivesSave) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-stamp-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-stamp-dst");
+    const auto src = copyFixture("TEST_01_SIMPLE_TEXT.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    const auto before = doc->extractImages(0).size();
+    pdfforge::Bitmap stamp;
+    stamp.width = 16;
+    stamp.height = 8;
+    stamp.stride = 16 * 4;
+    stamp.bgra.assign(static_cast<std::size_t>(stamp.stride * stamp.height), 0);
+    for (int y = 0; y < stamp.height; ++y) {
+        for (int x = 0; x < stamp.width; ++x) {
+            auto* px = stamp.bgra.data() +
+                       static_cast<std::size_t>(y) * static_cast<std::size_t>(stamp.stride) +
+                       static_cast<std::size_t>(x) * 4u;
+            px[0] = 40;
+            px[1] = 40;
+            px[2] = 200;
+            px[3] = 255;
+        }
+    }
+    doc->addImage(0, pdfforge::RectF{72.0f, 80.0f, 96.0f, 36.0f}, stamp);
+    CHECK(doc->extractImages(0).size() == before + 1);
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    CHECK(reopened->extractImages(0).size() == before + 1);
+}

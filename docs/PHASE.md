@@ -11,6 +11,8 @@ Completed:
 - Content-stream text editing via PDFium page objects (not overlay)
 - Text replace regenerates the original content stream so new glyphs do not stack on the old ones
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
+- Home menu: Edit PDF or Sign PDF
+- Visual signature stamp (uploaded image or drawn)
 - Inspector: text, size, color
 - Add / delete text objects
 - Save / Save As of the edited in-memory document

@@ -74,6 +74,33 @@ QString styleSheet() {
             selection-background-color: #C45C26;
             selection-color: #FFF8F0;
         }
+        QLabel#homeTitle {
+            color: #F4E6DC;
+            font-size: 32px;
+            font-weight: 600;
+        }
+        QLabel#homeSubtitle {
+            color: #E8E4DC;
+            font-size: 20px;
+        }
+        QLabel#homeHint {
+            color: #9A9488;
+            font-size: 13px;
+        }
+        QPushButton#homeCard {
+            background: #2A3038;
+            color: #E8E4DC;
+            border: 1px solid #3A414A;
+            border-radius: 10px;
+            padding: 18px 24px;
+            text-align: left;
+            font-size: 16px;
+        }
+        QPushButton#homeCard:hover {
+            border-color: #C45C26;
+            background: #322820;
+            color: #FFF4EC;
+        }
         QDockWidget {
             titlebar-close-icon: none;
             color: #E8E4DC;

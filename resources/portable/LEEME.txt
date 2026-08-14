@@ -1,4 +1,4 @@
-PDFForge Alpha 0.2.3
+PDFForge Alpha 0.2.4
 Independent professional PDF editor
 
 Como usarlo
@@ -10,16 +10,22 @@ Como usarlo
 3. Entra en la carpeta PDFForge y haz doble clic en "Abrir PDFForge.bat"
    (o en PDFForge.exe).
 4. Si aparece "Windows protegio tu PC": Mas informacion > Ejecutar de todas formas.
-5. Se abre un PDF de prueba automaticamente.
+5. Se abre el menu de inicio: Editar PDF o Firmar PDF.
 
-Editar texto
-------------
+Editar PDF
+----------
 - Clic en una linea para seleccionarla (inspector a la derecha).
 - Doble clic o F2 para editar. El texto anterior se tapa al escribir.
   Enter confirma y sustituye la linea (no se pinta encima).
 - Cambia tamano y color en el inspector y pulsa "Apply to PDF".
 - Add text: activa el boton, clic en la pagina, escribe.
 - File > Save guarda el PDF reescrito (no es un recuadro blanco).
+
+Firmar PDF
+----------
+- Subir imagen (PNG/JPG) o Dibujar firma con el raton.
+- Clic en la pagina para colocarla. Ajusta el ancho en puntos.
+- Save escribe la firma como objeto de imagen en el PDF.
 
 Paginas
 -------

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(PDFForge
-    VERSION 0.2.3
+    VERSION 0.2.4
     DESCRIPTION "Independent professional PDF editor"
     LANGUAGES CXX
 )
@@ -140,6 +140,8 @@ set(PDFFORGE_UI_SOURCES
     src/ui/SearchPanel.cpp
     src/ui/MainWindow.cpp
     src/ui/InspectorPanel.cpp
+    src/ui/HomeView.cpp
+    src/ui/SignaturePad.cpp
 )
 
 if(PDFFORGE_BUILD_APP)

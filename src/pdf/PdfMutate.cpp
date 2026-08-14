@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <vector>
 
@@ -550,6 +551,53 @@ void PdfDocument::addText(int pageIndex, PointF pagePoint, const std::string& ut
     if (!FPDFPage_InsertObject(page, obj)) {
         FPDF_ClosePage(page);
         throw Error(Status::EditFailed, "FPDFPage_InsertObject failed");
+    }
+    generateOrThrow(page);
+    FPDF_ClosePage(page);
+    bakeLocked();
+}
+
+void PdfDocument::addImage(int pageIndex, RectF pageRect, const Bitmap& bitmap) {
+    if (pageIndex < 0 || pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "addImage");
+    }
+    if (bitmap.empty() || bitmap.width > 4096 || bitmap.height > 4096) {
+        throw Error(Status::InvalidArgument, "image stamp size");
+    }
+    if (pageRect.width < 1.0f || pageRect.height < 1.0f) {
+        throw Error(Status::InvalidArgument, "image stamp rectangle");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), pageIndex);
+    if (!page) {
+        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
+    }
+    FPDF_BITMAP pdfBitmap = FPDFBitmap_Create(bitmap.width, bitmap.height, 1);
+    if (!pdfBitmap) {
+        FPDF_ClosePage(page);
+        throw Error(Status::EditFailed, "FPDFBitmap_Create failed");
+    }
+    auto* dest = static_cast<std::uint8_t*>(FPDFBitmap_GetBuffer(pdfBitmap));
+    const int destStride = FPDFBitmap_GetStride(pdfBitmap);
+    for (int y = 0; y < bitmap.height; ++y) {
+        const auto* src = bitmap.bgra.data() +
+                          static_cast<std::size_t>(y) * static_cast<std::size_t>(bitmap.stride);
+        std::memcpy(dest + static_cast<std::size_t>(y) * static_cast<std::size_t>(destStride), src,
+                    static_cast<std::size_t>(bitmap.width) * 4u);
+    }
+    FPDF_PAGEOBJECT obj = FPDFPageObj_NewImageObj(static_cast<FPDF_DOCUMENT>(document_));
+    const bool ok = obj && FPDFImageObj_SetBitmap(&page, 1, obj, pdfBitmap) != 0 &&
+                    FPDFImageObj_SetMatrix(obj, pageRect.width, 0, 0, pageRect.height, pageRect.x,
+                                           pageRect.y) != 0 &&
+                    FPDFPage_InsertObject(page, obj) != 0;
+    FPDFBitmap_Destroy(pdfBitmap);
+    if (!ok) {
+        if (obj) {
+            FPDFPageObj_Destroy(obj);
+        }
+        FPDF_ClosePage(page);
+        throw Error(Status::EditFailed, "could not insert image stamp");
     }
     generateOrThrow(page);
     FPDF_ClosePage(page);
