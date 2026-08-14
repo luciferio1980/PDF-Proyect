@@ -30,7 +30,7 @@ HomeView::HomeView(QWidget* parent) : QWidget(parent) {
     hint->setAlignment(Qt::AlignHCenter);
     hint->setWordWrap(true);
 
-    auto* editBtn = new QPushButton(tr("Editar PDF\nCambiar texto, páginas y objetos"), this);
+    auto* editBtn = new QPushButton(tr("Editar PDF\nRecuadro de selección, reconoce fuente y texto"), this);
     editBtn->setObjectName(QStringLiteral("homeCard"));
     editBtn->setCursor(Qt::PointingHandCursor);
     editBtn->setMinimumHeight(110);

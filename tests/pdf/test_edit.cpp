@@ -2,12 +2,14 @@
 #include "core/SecureTemp.h"
 #include "pdf/PdfDocument.h"
 #include "pdf/PdfiumRuntime.h"
+#include "pdf/RegionRecognize.h"
 #include "tests/TestHarness.h"
 
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <algorithm>
 
 namespace {
 
@@ -336,4 +338,56 @@ TEST(AddImageStampSurvivesSave) {
     reopened->save(gone);
     auto afterDelete = pdfforge::PdfDocument::open(runtime, gone);
     CHECK(afterDelete->extractImages(0).size() == before);
+}
+
+TEST(RecognizeRegionFindsTextAndFont) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    auto doc = pdfforge::PdfDocument::open(runtime, fixture("TEST_01_SIMPLE_TEXT.pdf"));
+    const auto spans = doc->extractText(0);
+    CHECK(!spans.empty());
+    pdfforge::TextSpan target = spans.front();
+    for (const auto& s : spans) {
+        if (contains(s.text, "PDFForge") || contains(s.text, "TOTAL")) {
+            target = s;
+            break;
+        }
+    }
+    const pdfforge::RectF box{target.x - 4.0f, target.y - 4.0f, target.width + 8.0f,
+                              target.height + 8.0f};
+    const auto read = pdfforge::recognizeRegion(*doc, 0, box);
+    CHECK(!read.text.empty());
+    CHECK(contains(read.text, target.text.substr(0, std::min<std::size_t>(4, target.text.size()))) ||
+          contains(read.text, "PDFForge") || contains(read.text, "TOTAL"));
+    CHECK(read.fontSize > 0);
+    CHECK(!read.spans.empty());
+    CHECK(!read.usedOcr);
+}
+
+TEST(ReplaceRegionEditsMarqueeSpans) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-region-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-region-dst");
+    const auto src = copyFixture("TEST_10_SPLIT_TEXT_RUNS.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    pdfforge::TextSpan target;
+    for (const auto& s : doc->extractText(0)) {
+        if (contains(s.text, "Cuantia")) {
+            target = s;
+            break;
+        }
+    }
+    CHECK(contains(target.text, "Cuantia"));
+    const pdfforge::RectF box{target.x - 2.0f, target.y - 2.0f, target.width + 4.0f,
+                              target.height + 4.0f};
+    auto read = pdfforge::recognizeRegion(*doc, 0, box);
+    CHECK(!read.spans.empty());
+    doc->replaceRegion(read.spans, "3 Contrato de mandato", target.fontSize, target.color);
+    CHECK(contains(doc->extractPlainText(0), "3 Contrato de mandato"));
+    CHECK(!contains(doc->extractPlainText(0), "Cuantia"));
+    CHECK(contains(doc->extractPlainText(0), "Keep this sibling line"));
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    CHECK(contains(reopened->extractPlainText(0), "3 Contrato de mandato"));
+    CHECK(contains(reopened->extractPlainText(0), "Keep this sibling line"));
 }

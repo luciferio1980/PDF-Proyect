@@ -13,6 +13,7 @@
 #include <QPaintEvent>
 #include <QPen>
 #include <QPoint>
+#include <QRect>
 #include <QRectF>
 #include <QResizeEvent>
 #include <QTimer>
@@ -57,6 +58,8 @@ void PdfCanvas::setDocument(pdfforge::PdfDocument* document) {
     selectedSpan_ = -1;
     selectedSignature_ = -1;
     resizingStamp_ = false;
+    marqueeDrag_ = false;
+    hasRegion_ = false;
     hits_.clear();
     activeHit_ = -1;
     signatures_.clear();
@@ -83,6 +86,7 @@ void PdfCanvas::setPage(int pageIndex) {
     selectedSpan_ = -1;
     selectedSignature_ = -1;
     resizingStamp_ = false;
+    hasRegion_ = false;
     emit selectionCleared();
     emit signatureSelectionCleared();
     loadSpans();
@@ -110,17 +114,12 @@ void PdfCanvas::setSearchHits(const std::vector<pdfforge::SearchHit>& hits, int 
 
 void PdfCanvas::reload() {
     cancelInlineEdit();
-    const int keepSpan = selectedSpan_;
     const int keepSignIndex = selectedSignature_ >= 0 ? signatures_[static_cast<std::size_t>(selectedSignature_)].pdfObjectIndex : -1;
     loadSpans();
     loadSignatures();
-    if (keepSpan >= 0 && keepSpan < static_cast<int>(spans_.size())) {
-        selectedSpan_ = keepSpan;
-        emit spanSelected(spans_[static_cast<std::size_t>(keepSpan)]);
-    } else {
-        selectedSpan_ = -1;
-        emit selectionCleared();
-    }
+    selectedSpan_ = -1;
+    hasRegion_ = false;
+    emit selectionCleared();
     selectedSignature_ = -1;
     if (keepSignIndex >= 0) {
         for (int i = 0; i < static_cast<int>(signatures_.size()); ++i) {
@@ -233,8 +232,32 @@ void PdfCanvas::loadSignatures() {
 void PdfCanvas::clearSelection() {
     cancelInlineEdit();
     selectedSpan_ = -1;
+    hasRegion_ = false;
+    marqueeDrag_ = false;
     emit selectionCleared();
     update();
+}
+
+void PdfCanvas::setRegionSelection(const pdfforge::RectF& pageRect, const QString& text) {
+    regionRect_ = pageRect;
+    regionText_ = text;
+    hasRegion_ = !pageRect.empty();
+    selectedSpan_ = -1;
+    update();
+}
+
+void PdfCanvas::clearRegionSelection() {
+    hasRegion_ = false;
+    regionText_.clear();
+    marqueeDrag_ = false;
+    update();
+}
+
+std::optional<pdfforge::RectF> PdfCanvas::selectedRegion() const {
+    if (!hasRegion_) {
+        return std::nullopt;
+    }
+    return regionRect_;
 }
 
 std::optional<pdfforge::TextSpan> PdfCanvas::selectedSpan() const {
@@ -300,6 +323,13 @@ QPoint PdfCanvas::imageOffset() const {
     return {x, y};
 }
 
+QRect PdfCanvas::imageRect() const {
+    if (image_.isNull()) {
+        return {};
+    }
+    return QRect(imageOffset(), image_.size());
+}
+
 bool PdfCanvas::widgetToPage(const QPoint& widgetPos, pdfforge::PointF& page) const {
     if (!document_ || image_.isNull()) {
         return false;
@@ -315,6 +345,16 @@ bool PdfCanvas::widgetToPage(const QPoint& widgetPos, pdfforge::PointF& page) co
     req.dpi = dpi();
     req.rotationQuarterTurns = rotation_;
     return document_->deviceToPage(pageIndex_, req, dx, dy, page);
+}
+
+bool PdfCanvas::widgetToPageClamped(const QPoint& widgetPos, pdfforge::PointF& page) const {
+    const QRect img = imageRect();
+    if (img.isEmpty()) {
+        return false;
+    }
+    const QPoint clamped(std::clamp(widgetPos.x(), img.left(), img.right() - 1),
+                         std::clamp(widgetPos.y(), img.top(), img.bottom() - 1));
+    return widgetToPage(clamped, page);
 }
 
 int PdfCanvas::hitSpanAt(const QPoint& widgetPos) const {
@@ -453,22 +493,36 @@ QPolygonF PdfCanvas::spanPolygon(const pdfforge::RectF& r) const {
 }
 
 void PdfCanvas::beginInlineEdit() {
-    if (selectedSpan_ < 0 || selectedSpan_ >= static_cast<int>(spans_.size())) {
+    QRect rect;
+    QString text;
+    int pixelSize = 14;
+    if (hasRegion_) {
+        const QPolygonF poly = spanPolygon(regionRect_);
+        if (poly.isEmpty()) {
+            return;
+        }
+        rect = poly.boundingRect().adjusted(-4, -4, 8, 4).toRect();
+        text = regionText_;
+        pixelSize = std::max(10, rect.height() - 8);
+        editingSpan_ = -2;
+    } else if (selectedSpan_ >= 0 && selectedSpan_ < static_cast<int>(spans_.size())) {
+        const auto& span = spans_[static_cast<std::size_t>(selectedSpan_)];
+        const QPolygonF poly = spanPolygon(span.bounds());
+        if (poly.isEmpty()) {
+            return;
+        }
+        rect = poly.boundingRect().adjusted(-4, -4, 8, 4).toRect();
+        text = QString::fromStdString(span.text);
+        pixelSize = std::max(10, static_cast<int>(std::lround(span.fontSize * dpi() / 72.0f)));
+        editingSpan_ = selectedSpan_;
+    } else {
         return;
     }
-    const auto& span = spans_[static_cast<std::size_t>(selectedSpan_)];
-    const QPolygonF poly = spanPolygon(span.bounds());
-    if (poly.isEmpty()) {
-        return;
-    }
-    const QRect rect = poly.boundingRect().adjusted(-4, -4, 8, 4).toRect();
-    editingSpan_ = selectedSpan_;
     QFont font = editor_->font();
-    const int pixelSize = std::max(10, static_cast<int>(std::lround(span.fontSize * dpi() / 72.0f)));
     font.setPixelSize(pixelSize);
     editor_->setFont(font);
     editor_->setGeometry(rect);
-    editor_->setText(QString::fromStdString(span.text));
+    editor_->setText(text);
     editor_->show();
     editor_->setFocus();
     editor_->selectAll();
@@ -482,7 +536,15 @@ void PdfCanvas::finishInlineEdit(bool commit) {
     const QString text = editor_->text();
     editor_->hide();
     editingSpan_ = -1;
-    if (!commit || index < 0 || index >= static_cast<int>(spans_.size())) {
+    if (!commit) {
+        return;
+    }
+    if (index == -2 || hasRegion_) {
+        regionText_ = text;
+        emit regionEditCommitted(text);
+        return;
+    }
+    if (index < 0 || index >= static_cast<int>(spans_.size())) {
         return;
     }
     const QString previous = QString::fromStdString(spans_[static_cast<std::size_t>(index)].text);
@@ -513,8 +575,15 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
     const QPoint off = imageOffset();
     p.fillRect(QRect(off, image_.size()).adjusted(-8, -8, 8, 8), theme().panel);
     p.drawImage(off, image_);
-    if (editor_->isVisible() && editingSpan_ >= 0 &&
-        editingSpan_ < static_cast<int>(spans_.size())) {
+    if (editor_->isVisible() && hasRegion_) {
+        const QPolygonF cover = spanPolygon(regionRect_);
+        if (!cover.isEmpty()) {
+            p.setBrush(theme().paper);
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(cover);
+        }
+    } else if (editor_->isVisible() && editingSpan_ >= 0 &&
+               editingSpan_ < static_cast<int>(spans_.size())) {
         const QPolygonF cover = spanPolygon(spans_[static_cast<std::size_t>(editingSpan_)].bounds());
         if (!cover.isEmpty()) {
             p.setBrush(theme().paper);
@@ -560,6 +629,25 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
                 p.drawRect(QRectF(c.x() - k * 0.5, c.y() - k * 0.5, k, k));
             }
         }
+    }
+
+    if (hasRegion_ && !placeStampMode_ && !signWorkspace_) {
+        const QPolygonF poly = spanPolygon(regionRect_);
+        if (!poly.isEmpty()) {
+            QColor fill = theme().copper;
+            fill.setAlpha(40);
+            p.setBrush(fill);
+            p.setPen(QPen(theme().copper, 2, Qt::DashLine));
+            p.drawPolygon(poly);
+        }
+    }
+    if (marqueeDrag_ && !signWorkspace_ && !placeStampMode_) {
+        const QRect box = QRect(marqueeOrigin_, lastMouse_).normalized();
+        QColor fill = theme().copper;
+        fill.setAlpha(28);
+        p.setBrush(fill);
+        p.setPen(QPen(theme().copper, 1, Qt::DashLine));
+        p.drawRect(box);
     }
 
     const auto drawPoly = [&](const pdfforge::RectF& bounds, const QColor& fill, const QColor& stroke) {
@@ -634,6 +722,13 @@ void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
         setCursor(Qt::CrossCursor);
         return;
     }
+    if (!signWorkspace_ && !placeStampMode_) {
+        setCursor(marqueeDrag_ ? Qt::CrossCursor : Qt::CrossCursor);
+        if (marqueeDrag_) {
+            update();
+        }
+        return;
+    }
     const int hit = hitSpanAt(event->pos());
     setCursor(hit >= 0 ? Qt::IBeamCursor : Qt::ArrowCursor);
     if (hit != hoverSpan_) {
@@ -687,6 +782,16 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
         }
         return;
     }
+    if (!signWorkspace_ && !placeStampMode_) {
+        finishInlineEdit(true);
+        marqueeDrag_ = true;
+        marqueeOrigin_ = event->pos();
+        lastMouse_ = event->pos();
+        setCursor(Qt::CrossCursor);
+        setFocus();
+        update();
+        return;
+    }
     const int hit = hitSpanAt(event->pos());
     selectedSpan_ = hit;
     if (hit >= 0) {
@@ -698,7 +803,32 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
 }
 
 void PdfCanvas::mouseReleaseEvent(QMouseEvent* event) {
-    if (event->button() != Qt::LeftButton || !resizingStamp_) {
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mouseReleaseEvent(event);
+        return;
+    }
+    if (marqueeDrag_ && !signWorkspace_ && !placeStampMode_) {
+        marqueeDrag_ = false;
+        const QRect box = QRect(marqueeOrigin_, event->pos()).normalized();
+        lastMouse_ = event->pos();
+        if (box.width() < 8 || box.height() < 8) {
+            clearSelection();
+            update();
+            return;
+        }
+        pdfforge::PointF a;
+        pdfforge::PointF b;
+        if (!widgetToPageClamped(box.topLeft(), a) || !widgetToPageClamped(box.bottomRight(), b)) {
+            update();
+            return;
+        }
+        const pdfforge::RectF pageRect{std::min(a.x, b.x), std::min(a.y, b.y),
+                                       std::fabs(a.x - b.x), std::fabs(a.y - b.y)};
+        emit regionSelected(pageRect);
+        update();
+        return;
+    }
+    if (!resizingStamp_) {
         QWidget::mouseReleaseEvent(event);
         return;
     }
@@ -715,10 +845,7 @@ void PdfCanvas::mouseDoubleClickEvent(QMouseEvent* event) {
     if (event->button() != Qt::LeftButton || placeStampMode_ || signWorkspace_) {
         return;
     }
-    const int hit = hitSpanAt(event->pos());
-    if (hit >= 0) {
-        selectedSpan_ = hit;
-        emit spanSelected(spans_[static_cast<std::size_t>(hit)]);
+    if (hasRegion_) {
         beginInlineEdit();
     }
 }

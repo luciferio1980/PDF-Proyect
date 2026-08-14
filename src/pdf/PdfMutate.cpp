@@ -369,12 +369,26 @@ void dropPageObjects(FPDF_PAGE page, const std::vector<FPDF_PAGEOBJECT>& targets
 
 void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
                                     const Color& color) {
+    rewriteSpansLocked({span}, utf8, fontSize, color);
+}
+
+void PdfDocument::rewriteSpansLocked(const std::vector<TextSpan>& spans, const std::string& utf8,
+                                     float fontSize, const Color& color) {
+    if (spans.empty()) {
+        throw Error(Status::InvalidArgument, "empty region");
+    }
+    const TextSpan& span = spans.front();
     FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
     if (!page) {
         throw Error(Status::EditFailed, "FPDF_LoadPage failed");
     }
     FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    std::vector<FPDF_PAGEOBJECT> targets = objectsForSpan(page, text, span);
+    std::vector<FPDF_PAGEOBJECT> targets;
+    for (const auto& item : spans) {
+        for (FPDF_PAGEOBJECT obj : objectsForSpan(page, text, item)) {
+            appendUnique(targets, obj);
+        }
+    }
     FPDF_PAGEOBJECT first = targets.empty() ? nullptr : targets.front();
 
     double originX = static_cast<double>(span.x);
@@ -408,7 +422,7 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
     }
 
     std::string next = utf8;
-    if (text && targets.size() == 1 && !utf8.empty()) {
+    if (text && targets.size() == 1 && spans.size() == 1 && !utf8.empty()) {
         const std::string current = textObjectUtf8(first, text);
         if (!span.text.empty() && current.find(span.text) != std::string::npos &&
             current != span.text) {
@@ -518,6 +532,22 @@ void PdfDocument::editSpan(const TextSpan& span, const std::string& utf8, float 
     auto api = runtime_->lock();
     markDirtyLocked();
     rewriteSpanLocked(span, utf8, fontSize, color);
+}
+
+void PdfDocument::replaceRegion(const std::vector<TextSpan>& spans, const std::string& utf8,
+                                float fontSize, const Color& color) {
+    if (spans.empty()) {
+        throw Error(Status::InvalidArgument, "empty region");
+    }
+    if (spans.front().pageIndex < 0 || spans.front().pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "replaceRegion");
+    }
+    if (fontSize <= 0.0f || fontSize > 200.0f) {
+        fontSize = spans.front().fontSize > 0 ? spans.front().fontSize : 12.0f;
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    rewriteSpansLocked(spans, utf8, fontSize, color);
 }
 
 void PdfDocument::save(const std::filesystem::path& destination) {

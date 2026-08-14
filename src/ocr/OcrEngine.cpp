@@ -68,7 +68,9 @@ OcrPageResult OcrEngine::recognize(const Bitmap& bitmap, const OcrOptions& optio
     if (api.Init(datapath, options.language.c_str())) {
         throw Error(Status::OcrFailed, "TessBaseAPI::Init failed");
     }
-    api.SetPageSegMode(tesseract::PSM_AUTO);
+    api.SetPageSegMode(options.pageSegMode >= 0
+                           ? static_cast<tesseract::PageSegMode>(options.pageSegMode)
+                           : tesseract::PSM_AUTO);
     std::vector<std::uint8_t> rgb(static_cast<std::size_t>(bitmap.width) *
                                   static_cast<std::size_t>(bitmap.height) * 3u);
     for (int y = 0; y < bitmap.height; ++y) {

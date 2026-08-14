@@ -9,7 +9,7 @@ if not exist "%~dp0PDFForge.exe" (
 )
 if not exist "%~dp0vcruntime140.dll" (
     echo Falta vcruntime140.dll. Este zip esta incompleto.
-    echo Descarga de nuevo PDFForge Alpha 0.2.5.
+    echo Descarga de nuevo PDFForge Alpha 0.2.6.
     pause
     exit /b 1
 )

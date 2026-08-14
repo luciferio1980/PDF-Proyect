@@ -6,6 +6,7 @@
 #include "model/PageClassification.h"
 #include "ocr/OcrEngine.h"
 #include "pdf/PdfSearch.h"
+#include "pdf/RegionRecognize.h"
 #include "ui/HomeView.h"
 #include "ui/InspectorPanel.h"
 #include "ui/PdfCanvas.h"
@@ -15,6 +16,7 @@
 #include "ui/ThumbnailPane.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QColor>
 #include <QDockWidget>
@@ -199,8 +201,13 @@ void MainWindow::buildUi() {
     connect(canvas_, &PdfCanvas::spanSelected, this, [this](const pdfforge::TextSpan& span) {
         inspector_->setSpan(span);
     });
-    connect(canvas_, &PdfCanvas::selectionCleared, inspector_, &InspectorPanel::clearSpan);
+    connect(canvas_, &PdfCanvas::selectionCleared, this, [this]() {
+        region_ = {};
+        inspector_->clearSpan();
+    });
     connect(canvas_, &PdfCanvas::spanEditCommitted, this, &MainWindow::commitInlineEdit);
+    connect(canvas_, &PdfCanvas::regionSelected, this, &MainWindow::onRegionSelected);
+    connect(canvas_, &PdfCanvas::regionEditCommitted, this, &MainWindow::commitRegionEdit);
     connect(canvas_, &PdfCanvas::emptyPageClicked, this, &MainWindow::addTextAt);
     connect(canvas_, &PdfCanvas::stampPlaced, this, &MainWindow::placeSignature);
     connect(canvas_, &PdfCanvas::signatureSelected, this, &MainWindow::onSignatureSelected);
@@ -380,6 +387,8 @@ void MainWindow::openPathForEdit(const QString& path) {
         refreshPageUi();
         updateTitle();
         pdfforge::Logger::instance().info("ui", "opened document for edit");
+        statusBar()->showMessage(
+            tr("Arrastra un recuadro sobre el texto para reconocerlo y editarlo"), 7000);
     } catch (const pdfforge::Error& ex) {
         document_.reset();
         canvas_->setDocument(nullptr);
@@ -600,28 +609,46 @@ void MainWindow::addTextAt(const pdfforge::PointF& pagePoint) {
 }
 
 void MainWindow::applySpanEdits(const QString& text, float fontSize, const QColor& color) {
-    auto span = canvas_->selectedSpan();
-    if (!document_ || !span) {
+    if (!document_) {
         return;
     }
+    const pdfforge::Color next =
+        pdfforge::Color::fromBytes(color.red(), color.green(), color.blue(), color.alpha());
     try {
-        const pdfforge::Color next =
-            pdfforge::Color::fromBytes(color.red(), color.green(), color.blue(), color.alpha());
-        document_->editSpan(*span, text.toStdString(), fontSize, next);
+        if (!region_.spans.empty()) {
+            document_->replaceRegion(region_.spans, text.toStdString(), fontSize, next);
+        } else if (auto span = canvas_->selectedSpan()) {
+            document_->editSpan(*span, text.toStdString(), fontSize, next);
+        } else if (!region_.text.empty() || !text.trimmed().isEmpty()) {
+            document_->addText(canvas_->pageIndex(),
+                               pdfforge::PointF{region_.bounds.x, region_.bounds.y},
+                               text.toStdString(), fontSize, next);
+        } else {
+            return;
+        }
+        region_ = {};
+        canvas_->clearRegionSelection();
         refreshAfterMutation(false);
         thumbs_->refreshPage(canvas_->pageIndex());
+        statusBar()->showMessage(tr("Texto actualizado — Save para escribir el archivo"), 4000);
     } catch (const pdfforge::Error& ex) {
         showError(ex);
     }
 }
 
 void MainWindow::deleteSelectedSpan() {
-    auto span = canvas_->selectedSpan();
-    if (!document_ || !span) {
+    if (!document_) {
         return;
     }
     try {
-        document_->deleteSpan(*span);
+        if (!region_.spans.empty()) {
+            document_->replaceRegion(region_.spans, {}, region_.fontSize, region_.color);
+        } else if (auto span = canvas_->selectedSpan()) {
+            document_->deleteSpan(*span);
+        } else {
+            return;
+        }
+        region_ = {};
         canvas_->clearSelection();
         refreshAfterMutation(false);
         thumbs_->refreshPage(canvas_->pageIndex());
@@ -645,6 +672,70 @@ void MainWindow::commitInlineEdit(const pdfforge::TextSpan& span, const QString&
     } catch (const pdfforge::Error& ex) {
         showError(ex);
     }
+}
+
+void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
+    if (!document_) {
+        return;
+    }
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    pdfforge::RegionRead read;
+    try {
+        read = pdfforge::recognizeRegion(*document_, canvas_->pageIndex(), pageRect);
+    } catch (const pdfforge::Error& ex) {
+        QApplication::restoreOverrideCursor();
+        showError(ex);
+        return;
+    }
+    QApplication::restoreOverrideCursor();
+    if (read.empty()) {
+        region_ = {};
+        canvas_->clearRegionSelection();
+        inspector_->clearSpan();
+        statusBar()->showMessage(tr("No se reconoció texto en el recuadro"), 4000);
+        return;
+    }
+    region_ = read;
+    pdfforge::TextSpan view;
+    if (!read.spans.empty()) {
+        view = read.spans.front();
+    }
+    view.text = read.text;
+    view.fontSize = read.fontSize;
+    view.fontWeight = read.fontWeight;
+    view.italic = read.italic;
+    view.color = read.color;
+    view.x = read.bounds.x;
+    view.y = read.bounds.y;
+    view.width = read.bounds.width;
+    view.height = read.bounds.height;
+    if (read.usedOcr) {
+        view.fontName = read.matchedFamily.empty() ? "OCR" : ("OCR · " + read.matchedFamily);
+    } else if (!read.matchedFamily.empty() && read.matchedFamily != read.fontName) {
+        view.fontName = read.fontName + " → " + read.matchedFamily;
+    } else {
+        view.fontName = read.fontName.empty() ? read.matchedFamily : read.fontName;
+    }
+    inspector_->setSpan(view);
+    canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text));
+    canvas_->beginInlineEdit();
+    QString source = read.usedOcr ? tr("OCR") : tr("capa de texto");
+    statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt")
+                                 .arg(source, QString::fromStdString(view.fontName))
+                                 .arg(read.fontSize, 0, 'f', 1),
+                             6000);
+}
+
+void MainWindow::commitRegionEdit(const QString& text) {
+    if (!document_) {
+        return;
+    }
+    if (text.toStdString() == region_.text) {
+        return;
+    }
+    const QColor color = QColor::fromRgbF(region_.color.toRgb().c0, region_.color.toRgb().c1,
+                                          region_.color.toRgb().c2, region_.color.toRgb().alpha);
+    applySpanEdits(text, region_.fontSize, color);
 }
 
 void MainWindow::runOcr() {

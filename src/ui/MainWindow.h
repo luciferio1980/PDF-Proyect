@@ -3,6 +3,7 @@
 #include "pdf/PdfDocument.h"
 #include "pdf/PdfiumRuntime.h"
 #include "pdf/PdfSearch.h"
+#include "pdf/RegionRecognize.h"
 
 #include <QImage>
 #include <QMainWindow>
@@ -60,6 +61,8 @@ private slots:
     void applySpanEdits(const QString& text, float fontSize, const QColor& color);
     void deleteSelectedSpan();
     void commitInlineEdit(const pdfforge::TextSpan& span, const QString& text);
+    void commitRegionEdit(const QString& text);
+    void onRegionSelected(const pdfforge::RectF& pageRect);
     void addTextAt(const pdfforge::PointF& pagePoint);
     void runOcr();
     void showHome();
@@ -116,6 +119,7 @@ private:
     QImage stampImage_;
     bool placedThisVisit_ = false;
     bool ignoreStampWidth_ = false;
+    pdfforge::RegionRead region_;
     std::vector<pdfforge::SearchHit> hits_;
 };
 

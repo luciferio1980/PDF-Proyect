@@ -42,6 +42,7 @@ struct OcrPageResult {
 struct OcrOptions {
     std::string language = "eng";  // ISO-like tesseract codes, + joined
     int dpi = 300;
+    int pageSegMode = -1;  // -1 = tesseract AUTO
     CancellationToken* cancel = nullptr;
 };
 

@@ -33,6 +33,22 @@ struct RectF {
         return px >= x && py >= y && px <= x + width && py <= y + height;
     }
 
+    [[nodiscard]] bool intersects(const RectF& other) const {
+        return left() < other.right() && other.left() < right() && bottom() < other.top() &&
+               other.bottom() < top();
+    }
+
+    [[nodiscard]] RectF intersection(const RectF& other) const {
+        const float l = std::max(left(), other.left());
+        const float b = std::max(bottom(), other.bottom());
+        const float r = std::min(right(), other.right());
+        const float t = std::min(top(), other.top());
+        if (r <= l || t <= b) {
+            return {};
+        }
+        return RectF{l, b, r - l, t - b};
+    }
+
     [[nodiscard]] RectF united(const RectF& other) const {
         if (empty()) {
             return other;

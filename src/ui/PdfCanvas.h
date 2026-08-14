@@ -37,6 +37,8 @@ public:
     void clearSelection();
     void clearSignatureSelection();
     void selectSignatureAt(const pdfforge::PointF& pagePoint);
+    void setRegionSelection(const pdfforge::RectF& pageRect, const QString& text);
+    void clearRegionSelection();
 
     [[nodiscard]] int pageIndex() const { return pageIndex_; }
     [[nodiscard]] float zoom() const { return zoom_; }
@@ -44,6 +46,7 @@ public:
     [[nodiscard]] float dpi() const;
     [[nodiscard]] std::optional<pdfforge::TextSpan> selectedSpan() const;
     [[nodiscard]] std::optional<pdfforge::ImageObject> selectedSignature() const;
+    [[nodiscard]] std::optional<pdfforge::RectF> selectedRegion() const;
     [[nodiscard]] bool addTextMode() const { return addTextMode_; }
     [[nodiscard]] bool placeStampMode() const { return placeStampMode_; }
 
@@ -59,6 +62,8 @@ signals:
     void selectionCleared();
     void spanEditCommitted(const pdfforge::TextSpan& span, const QString& text);
     void emptyPageClicked(const pdfforge::PointF& pagePoint);
+    void regionSelected(const pdfforge::RectF& pageRect);
+    void regionEditCommitted(const QString& text);
     void stampPlaced(const pdfforge::PointF& pagePoint);
     void signatureSelected(const pdfforge::ImageObject& image);
     void signatureSelectionCleared();
@@ -87,6 +92,8 @@ private:
     int hitSignatureAt(const QPoint& widgetPos) const;
     StampHandle hitStampHandle(const QPoint& widgetPos) const;
     bool widgetToPage(const QPoint& widgetPos, pdfforge::PointF& page) const;
+    bool widgetToPageClamped(const QPoint& widgetPos, pdfforge::PointF& page) const;
+    QRect imageRect() const;
     QPolygonF spanPolygon(const pdfforge::RectF& bounds) const;
     QRectF signatureWidgetRect(const pdfforge::RectF& bounds) const;
     pdfforge::RectF resizedSignatureRect(StampHandle handle, const pdfforge::PointF& page) const;
@@ -116,6 +123,11 @@ private:
     QImage stampPreview_;
     float stampWidthPt_ = 144.0f;
     QPoint lastMouse_;
+    QPoint marqueeOrigin_;
+    bool marqueeDrag_ = false;
+    bool hasRegion_ = false;
+    pdfforge::RectF regionRect_{};
+    QString regionText_;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;
     bool committing_ = false;

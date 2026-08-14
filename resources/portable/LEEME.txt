@@ -1,4 +1,4 @@
-PDFForge Alpha 0.2.5
+PDFForge Alpha 0.2.6
 Independent professional PDF editor
 
 Como usarlo
@@ -14,12 +14,12 @@ Como usarlo
 
 Editar PDF
 ----------
-- Clic en una linea para seleccionarla (inspector a la derecha).
-- Doble clic o F2 para editar. El texto anterior se tapa al escribir.
-  Enter confirma y sustituye la linea (no se pinta encima).
+- Arrastra un recuadro sobre el texto que quieres cambiar.
+- El programa reconoce la fuente y el texto y abre la edicion.
+  Enter confirma. File > Save escribe el PDF (no es un recuadro blanco).
+- Clic fuera del recuadro quita la seleccion.
 - Cambia tamano y color en el inspector y pulsa "Apply to PDF".
 - Add text: activa el boton, clic en la pagina, escribe.
-- File > Save guarda el PDF reescrito (no es un recuadro blanco).
 
 Firmar PDF
 ----------

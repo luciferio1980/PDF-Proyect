@@ -41,7 +41,7 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     fontLabel_ = new QLabel(tr("—"), textBox);
     fontLabel_->setWordWrap(true);
     textEdit_ = new QLineEdit(textBox);
-    textEdit_->setPlaceholderText(tr("Select text on the page"));
+    textEdit_->setPlaceholderText(tr("Dibuja un recuadro sobre el texto"));
     sizeSpin_ = new QDoubleSpinBox(textBox);
     sizeSpin_->setRange(1.0, 200.0);
     sizeSpin_->setDecimals(1);
@@ -53,7 +53,10 @@ InspectorPanel::InspectorPanel(QWidget* parent) : QWidget(parent) {
     applyBtn_ = new QPushButton(tr("Apply to PDF"), textBox);
     deleteBtn_ = new QPushButton(tr("Delete object"), textBox);
     hintLabel_ = new QLabel(
-        tr("Edits rewrite the PDF text object. This is not a white box overlay."), textBox);
+        tr("Arrastra un recuadro sobre el texto. Se reconoce la fuente y el contenido para editarlo."),
+        textBox);
+    hintLabel_->setWordWrap(true);
+    hintLabel_->setStyleSheet(QStringLiteral("color: #9A9488; font-size: 11px;"));
     hintLabel_->setWordWrap(true);
     hintLabel_->setStyleSheet(QStringLiteral("color: #9A9488; font-size: 11px;"));
     form->addRow(tr("Font"), fontLabel_);

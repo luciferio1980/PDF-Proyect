@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(PDFForge
-    VERSION 0.2.5
+    VERSION 0.2.6
     DESCRIPTION "Independent professional PDF editor"
     LANGUAGES CXX
 )
@@ -77,6 +77,7 @@ set(PDFFORGE_CORE_SOURCES
     src/pdf/PdfTextExtractor.cpp
     src/pdf/PageClassifier.cpp
     src/pdf/PdfSearch.cpp
+    src/pdf/RegionRecognize.cpp
     src/renderer/PdfRenderer.cpp
     src/renderer/RenderCache.cpp
     src/fonts/FontMatcher.cpp

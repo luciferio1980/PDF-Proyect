@@ -68,15 +68,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.5-alpha
-          name: PDFForge Alpha 0.2.5
+          tag_name: v0.2.6-alpha
+          name: PDFForge Alpha 0.2.6
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.5.
+            Portable Windows build of PDFForge Alpha 0.2.6.
 
-            Sign PDF now places one signature per visit. Change its size
-            with the Tamaño control or the corner handles. Click the stamp
-            to select it (box + delete); click elsewhere to deselect.
-            Saved signatures (up to 8) can be reused or deleted from the list.
+            Edit PDF: drag a selection box around text. The app recognizes
+            the font and the text so you can edit it. Native PDFs use the
+            text layer; scanned regions use OCR when Tesseract is available.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)
@@ -85,5 +84,6 @@ jobs:
             5. If SmartScreen appears: More info → Run anyway
 
             OCR is not in the Windows portable zip (Tesseract is Linux CI only).
+            Native PDF text recognition still works without Tesseract.
           files: dist/PDFForge-windows-x64.zip
           fail_on_unmatched_files: true

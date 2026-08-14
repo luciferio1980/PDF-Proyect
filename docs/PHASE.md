@@ -9,6 +9,7 @@ Completed:
 - Qt viewer: open, zoom, navigate, rotate, thumbnails, search
 - Portable Windows zip with Visual C++ runtime
 - Content-stream text editing via PDFium page objects (not overlay)
+- Marquee selection recognizes font and text for editing
 - Text replace regenerates the original content stream so new glyphs do not stack on the old ones
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF
