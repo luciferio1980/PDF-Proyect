@@ -38,7 +38,8 @@ public:
     void clearSelection();
     void clearSignatureSelection();
     void selectSignatureAt(const pdfforge::PointF& pagePoint);
-    void setRegionSelection(const pdfforge::RectF& pageRect, const QString& text);
+    void setRegionSelection(const pdfforge::RectF& pageRect, const QString& text,
+                            float fontSizePt = 12.0f);
     void clearRegionSelection();
 
     [[nodiscard]] int pageIndex() const { return pageIndex_; }
@@ -100,6 +101,8 @@ private:
     QRectF regionWidgetRect() const;
     bool hitsRegionMoveHandle(const QPoint& widgetPos) const;
     QRect regionEditorRect() const;
+    int editorFontPixelSize() const;
+    void fitRegionToFont();
     void startRegionMove(const QPoint& widgetPos);
     void stopRegionMove();
     void syncEditorGeometry();
@@ -139,6 +142,7 @@ private:
     pdfforge::RectF regionRect_{};
     pdfforge::PointF moveLastPage_{};
     QString regionText_;
+    float regionFontSize_ = 12.0f;
     QWidget* regionFrame_ = nullptr;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;

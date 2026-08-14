@@ -746,7 +746,7 @@ void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
         view.fontName = read.fontName.empty() ? read.matchedFamily : read.fontName;
     }
     inspector_->setSpan(view);
-    canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text));
+    canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text), read.fontSize);
     canvas_->beginInlineEdit();
     QString source = read.usedOcr ? tr("OCR") : tr("capa de texto");
     statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt — pasa el puntero por el recuadro para moverlo")

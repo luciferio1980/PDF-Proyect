@@ -70,7 +70,8 @@ QString styleSheet() {
         QLineEdit#pdfInlineEditor {
             background: #F4F1EA;
             color: #1B1814;
-            border: 1px solid #C45C26;
+            border: none;
+            padding: 0px;
             selection-background-color: #C45C26;
             selection-color: #FFF8F0;
         }

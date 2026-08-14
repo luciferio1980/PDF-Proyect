@@ -14,6 +14,7 @@ Completed:
 - Region apply deletes intersecting text objects and covers leftover image pixels in the selection
 - The text edit box can be dragged from its selection outline (four-arrow cursor)
 - Selected text uses an Acrobat-style box: hover the border, four-arrow cursor, drag to move
+- The inline editor keeps the original font size and grows the selection box if needed
 - View menu toggles the Inspector dock
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF

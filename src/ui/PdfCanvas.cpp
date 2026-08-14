@@ -7,6 +7,7 @@
 #include <QCursor>
 #include <QEvent>
 #include <QFont>
+#include <QFontMetrics>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -326,11 +327,14 @@ void PdfCanvas::clearSelection() {
     update();
 }
 
-void PdfCanvas::setRegionSelection(const pdfforge::RectF& pageRect, const QString& text) {
+void PdfCanvas::setRegionSelection(const pdfforge::RectF& pageRect, const QString& text,
+                                   float fontSizePt) {
     regionRect_ = pageRect;
     regionText_ = text;
+    regionFontSize_ = fontSizePt > 0.0f ? fontSizePt : 12.0f;
     hasRegion_ = !pageRect.empty();
     selectedSpan_ = -1;
+    fitRegionToFont();
     syncRegionFrame();
     update();
 }
@@ -339,6 +343,7 @@ void PdfCanvas::clearRegionSelection() {
     stopRegionMove();
     hasRegion_ = false;
     regionText_.clear();
+    regionFontSize_ = 12.0f;
     marqueeDrag_ = false;
     syncRegionFrame();
     update();
@@ -600,8 +605,8 @@ QRect PdfCanvas::regionEditorRect() const {
     if (box.isEmpty()) {
         return {};
     }
-    const int pad = (box.height() < 28 || box.width() < 56) ? 5 : 10;
-    QRect inner = box.adjusted(pad, pad, -pad, -pad);
+    constexpr int kPad = 6;
+    QRect inner = box.adjusted(kPad, kPad, -kPad, -kPad);
     if (inner.width() < 16) {
         inner.setLeft(box.left() + 2);
         inner.setWidth(std::max(16, box.width() - 4));
@@ -611,6 +616,44 @@ QRect PdfCanvas::regionEditorRect() const {
         inner.setHeight(std::max(12, box.height() - 4));
     }
     return inner;
+}
+
+int PdfCanvas::editorFontPixelSize() const {
+    const float pt = regionFontSize_ > 0.0f ? regionFontSize_ : 12.0f;
+    return std::max(8, static_cast<int>(std::lround(pt * dpi() / 72.0f)));
+}
+
+void PdfCanvas::fitRegionToFont() {
+    if (!hasRegion_ || !document_ || image_.isNull()) {
+        return;
+    }
+    const QRectF widgetBox = regionWidgetRect();
+    if (widgetBox.isEmpty()) {
+        return;
+    }
+    QFont font = editor_->font();
+    font.setPixelSize(editorFontPixelSize());
+    const QFontMetrics fm(font);
+    constexpr int kPad = 6;
+    const int needH = fm.height() + kPad * 2 + 2;
+    int needW = fm.horizontalAdvance(regionText_) + kPad * 2 + 8;
+    needW = std::max(needW, fm.averageCharWidth() * 4 + kPad * 2);
+    float extraW = 0.0f;
+    float extraH = 0.0f;
+    if (widgetBox.height() < static_cast<qreal>(needH)) {
+        extraH = static_cast<float>(needH) - static_cast<float>(widgetBox.height());
+    }
+    if (widgetBox.width() < static_cast<qreal>(needW)) {
+        extraW = static_cast<float>(needW) - static_cast<float>(widgetBox.width());
+    }
+    if (extraW <= 0.0f && extraH <= 0.0f) {
+        return;
+    }
+    const float sx = regionRect_.width / std::max(1.0f, static_cast<float>(widgetBox.width()));
+    const float sy = regionRect_.height / std::max(1.0f, static_cast<float>(widgetBox.height()));
+    regionRect_.width += extraW * sx;
+    regionRect_.height += extraH * sy;
+    clampRegionToPage();
 }
 
 void PdfCanvas::syncRegionFrame() {
@@ -708,7 +751,7 @@ void PdfCanvas::syncEditorGeometry() {
     if (rect.isEmpty()) {
         return;
     }
-    int pixelSize = std::max(10, rect.height() - 4);
+    int pixelSize = editorFontPixelSize();
     QFont font = editor_->font();
     font.setPixelSize(pixelSize);
     editor_->setFont(font);
@@ -721,13 +764,14 @@ void PdfCanvas::beginInlineEdit() {
     QString text;
     int pixelSize = 14;
     if (hasRegion_) {
+        fitRegionToFont();
         const QRect rectBox = regionEditorRect();
         if (rectBox.isEmpty()) {
             return;
         }
         rect = rectBox;
         text = regionText_;
-        pixelSize = std::max(10, rect.height() - 4);
+        pixelSize = editorFontPixelSize();
         editingSpan_ = -2;
     } else if (selectedSpan_ >= 0 && selectedSpan_ < static_cast<int>(spans_.size())) {
         const auto& span = spans_[static_cast<std::size_t>(selectedSpan_)];
