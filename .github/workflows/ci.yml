@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake pkg-config \
+            qt6-base-dev qt6-base-dev-tools \
+            libgl1-mesa-dev libxkbcommon-dev \
+            libqpdf-dev \
+            libtesseract-dev tesseract-ocr \
+            tesseract-ocr-eng tesseract-ocr-spa tesseract-ocr-fra \
+            tesseract-ocr-deu tesseract-ocr-ita tesseract-ocr-por \
+            libleptonica-dev python3
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.3"
+          archives: qtbase
+      - name: Configure
+        shell: cmd
+        run: cmake -S . -B build -DPDFFORGE_WITH_QPDF=OFF -DPDFFORGE_WITH_TESSERACT=OFF
+      - name: Build
+        shell: cmd
+        run: cmake --build build --config RelWithDebInfo
+      - name: Test
+        shell: cmd
+        run: ctest --test-dir build --output-on-failure -C RelWithDebInfo
