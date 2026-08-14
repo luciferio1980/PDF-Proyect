@@ -97,8 +97,10 @@ private:
     QPolygonF spanPolygon(const pdfforge::RectF& bounds) const;
     QRectF signatureWidgetRect(const pdfforge::RectF& bounds) const;
     QRectF regionWidgetRect() const;
-    QRectF regionGripRect() const;
     bool hitsRegionMoveHandle(const QPoint& widgetPos) const;
+    QRect regionEditorRect() const;
+    void startRegionMove(const QPoint& widgetPos);
+    void stopRegionMove();
     void syncEditorGeometry();
     void clampRegionToPage();
     pdfforge::RectF resizedSignatureRect(StampHandle handle, const pdfforge::PointF& page) const;

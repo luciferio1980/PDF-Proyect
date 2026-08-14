@@ -12,12 +12,12 @@ an official alternative to any other vendor.
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.8-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.9-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 The app starts on a home menu: Edit PDF or Sign PDF. Do not run the exe from inside the zip.
 
-Choose Edit PDF, then drag a box around the text to recognize font and content and edit it. Drag the dotted bar on the box to move the text. Choose Sign PDF to stamp one signature. File → Save writes the rewritten PDF.
+Choose Edit PDF, then drag a box around the text to recognize font and content and edit it. Hover the selection outline and drag to move the text. Use View → Inspector to show or hide the inspector. Choose Sign PDF to stamp one signature. File → Save writes the rewritten PDF.
 
 ## What works now
 
@@ -27,6 +27,8 @@ Choose Edit PDF, then drag a box around the text to recognize font and content a
 - Text extraction with coordinates, font name, size, weight, italic, color, baseline, rotation
 - Search
 - Edit native PDF text by drawing a selection box (recognizes font and text; applying an edit erases what was in the box)
+- Hover the selection outline (four-arrow cursor) and drag to move the text
+- View → Inspector shows or hides the inspector panel
 - Home menu to choose Edit PDF or Sign PDF
 - Visual signature stamp from an image or a mouse-drawn signature
 - One signature per Sign visit; click to select, resize, or delete; click away to deselect

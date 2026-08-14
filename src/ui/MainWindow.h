@@ -116,9 +116,11 @@ private:
     QAction* addTextAction_ = nullptr;
     QAction* undoAction_ = nullptr;
     QAction* deleteStampAction_ = nullptr;
+    QAction* inspectorViewAction_ = nullptr;
     QImage stampImage_;
     bool placedThisVisit_ = false;
     bool ignoreStampWidth_ = false;
+    bool inspectorUserVisible_ = true;
     pdfforge::RegionRead region_;
     std::vector<pdfforge::SearchHit> hits_;
 };

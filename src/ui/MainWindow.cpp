@@ -135,6 +135,11 @@ void MainWindow::buildUi() {
     inspectorDock_->setObjectName(QStringLiteral("inspectorDock"));
     inspectorDock_->setWidget(inspector_);
     addDockWidget(Qt::RightDockWidgetArea, inspectorDock_);
+    connect(inspectorDock_, &QDockWidget::visibilityChanged, this, [this](bool visible) {
+        if (workspace_ == Workspace::Edit) {
+            inspectorUserVisible_ = visible;
+        }
+    });
 
     library_ = new SignatureLibrary(this);
     firmasDock_ = new QDockWidget(tr("Firmas"), this);
@@ -284,6 +289,11 @@ void MainWindow::buildMenus() {
     view->addAction(tr("Next page"), QKeySequence::MoveToNextPage, this, [this]() {
         pageSpin_->setValue(pageSpin_->value() + 1);
     });
+    view->addSeparator();
+    inspectorViewAction_ = inspectorDock_->toggleViewAction();
+    inspectorViewAction_->setText(tr("&Inspector"));
+    inspectorViewAction_->setStatusTip(tr("Mostrar u ocultar el panel Inspector"));
+    view->addAction(inspectorViewAction_);
 
     auto* help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("About PDFForge"), this, [this]() {
@@ -739,7 +749,7 @@ void MainWindow::onRegionSelected(const pdfforge::RectF& pageRect) {
     canvas_->setRegionSelection(read.bounds, QString::fromStdString(read.text));
     canvas_->beginInlineEdit();
     QString source = read.usedOcr ? tr("OCR") : tr("capa de texto");
-    statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt — arrastra la barra para mover el texto")
+    statusBar()->showMessage(tr("Reconocido (%1): %2 · %3 pt — pasa el puntero por el recuadro para moverlo")
                                  .arg(source, QString::fromStdString(view.fontName))
                                  .arg(read.fontSize, 0, 'f', 1),
                              8000);
@@ -885,7 +895,11 @@ void MainWindow::setWorkspace(Workspace workspace) {
         pagesDock_->setVisible(!home);
     }
     if (inspectorDock_) {
-        inspectorDock_->setVisible(edit);
+        inspectorDock_->setVisible(edit && inspectorUserVisible_);
+    }
+    if (inspectorViewAction_) {
+        inspectorViewAction_->setEnabled(edit);
+        inspectorViewAction_->setChecked(edit && inspectorUserVisible_);
     }
     if (firmasDock_) {
         firmasDock_->setVisible(sign);
