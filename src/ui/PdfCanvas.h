@@ -62,6 +62,7 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void requestRender();
@@ -87,6 +88,7 @@ private:
     bool addTextMode_ = false;
     QLineEdit* editor_ = nullptr;
     int editingSpan_ = -1;
+    bool committing_ = false;
 };
 
 }  // namespace pdfforge::ui

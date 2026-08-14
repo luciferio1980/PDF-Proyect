@@ -1,3 +1,4 @@
+#include "comparison/ImageMetrics.h"
 #include "core/SecureTemp.h"
 #include "pdf/PdfDocument.h"
 #include "pdf/PdfiumRuntime.h"
@@ -117,4 +118,37 @@ TEST(EditColorAndSizeKeepText) {
         }
     }
     CHECK(found);
+}
+
+TEST(EditChangesRenderedPixelsAndSurvivesReopen) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-render-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-render-dst");
+    const auto src = copyFixture("TEST_01_SIMPLE_TEXT.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    pdfforge::RenderRequest req;
+    req.pageIndex = 0;
+    req.dpi = 72.0f;
+    const auto before = doc->render(req);
+    auto spans = doc->extractText(0);
+    CHECK(!spans.empty());
+    pdfforge::TextSpan target = spans.front();
+    for (const auto& s : spans) {
+        if (contains(s.text, "PDFForge")) {
+            target = s;
+            break;
+        }
+    }
+    doc->replaceSpanText(target, "ZZZZ EDIT STICKS");
+    CHECK(contains(doc->extractPlainText(0), "ZZZZ EDIT STICKS"));
+    const auto after = doc->render(req);
+    const auto diff = pdfforge::compareBitmaps(before, after);
+    CHECK(diff.differentPixels > 10);
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    CHECK(contains(reopened->extractPlainText(0), "ZZZZ EDIT STICKS"));
+    const auto again = reopened->render(req);
+    const auto diffSaved = pdfforge::compareBitmaps(before, again);
+    CHECK(diffSaved.differentPixels > 10);
 }

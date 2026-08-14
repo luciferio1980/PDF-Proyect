@@ -463,10 +463,14 @@ void MainWindow::commitInlineEdit(const pdfforge::TextSpan& span, const QString&
     if (!document_) {
         return;
     }
+    if (text.toStdString() == span.text) {
+        return;
+    }
     try {
         document_->replaceSpanText(span, text.toStdString());
         refreshAfterMutation(false);
         thumbs_->refreshPage(canvas_->pageIndex());
+        statusBar()->showMessage(tr("Text updated — Save to write the file"), 4000);
     } catch (const pdfforge::Error& ex) {
         showError(ex);
     }

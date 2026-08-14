@@ -1,4 +1,4 @@
-PDFForge Alpha 0.2
+PDFForge Alpha 0.2.1
 Independent professional PDF editor
 
 Como usarlo

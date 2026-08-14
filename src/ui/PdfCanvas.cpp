@@ -3,12 +3,14 @@
 #include "pdf/PdfDocument.h"
 #include "ui/Theme.h"
 
+#include <QEvent>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -36,6 +38,7 @@ PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
     editor_ = new QLineEdit(this);
     editor_->hide();
     editor_->setFrame(true);
+    editor_->installEventFilter(this);
     connect(editor_, &QLineEdit::returnPressed, this, [this]() { finishInlineEdit(true); });
 }
 
@@ -263,7 +266,13 @@ void PdfCanvas::finishInlineEdit(bool commit) {
     if (!commit || index < 0 || index >= static_cast<int>(spans_.size())) {
         return;
     }
+    const QString previous = QString::fromStdString(spans_[static_cast<std::size_t>(index)].text);
+    if (text == previous) {
+        return;
+    }
+    committing_ = true;
     emit spanEditCommitted(spans_[static_cast<std::size_t>(index)], text);
+    QTimer::singleShot(0, this, [this]() { committing_ = false; });
 }
 
 void PdfCanvas::cancelInlineEdit() {
@@ -401,12 +410,14 @@ void PdfCanvas::resizeEvent(QResizeEvent* event) {
 }
 
 void PdfCanvas::keyPressEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Escape) {
-        if (editor_->isVisible()) {
-            cancelInlineEdit();
+    if (committing_ || editor_->isVisible()) {
+        if (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Return ||
+            event->key() == Qt::Key_Enter) {
             event->accept();
             return;
         }
+    }
+    if (event->key() == Qt::Key_Escape) {
         if (addTextMode_) {
             setAddTextMode(false);
             event->accept();
@@ -416,13 +427,27 @@ void PdfCanvas::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
-    if (event->key() == Qt::Key_F2 || event->key() == Qt::Key_Return ||
-        event->key() == Qt::Key_Enter) {
+    if (event->key() == Qt::Key_F2) {
         beginInlineEdit();
         event->accept();
         return;
     }
     QWidget::keyPressEvent(event);
+}
+
+bool PdfCanvas::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == editor_ && event->type() == QEvent::KeyPress) {
+        const auto* key = static_cast<QKeyEvent*>(event);
+        if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
+            finishInlineEdit(true);
+            return true;
+        }
+        if (key->key() == Qt::Key_Escape) {
+            cancelInlineEdit();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 }  // namespace pdfforge::ui

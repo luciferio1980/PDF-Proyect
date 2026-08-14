@@ -68,8 +68,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-alpha
-          name: PDFForge Alpha 0.2
+          tag_name: v0.2.1-alpha
+          name: PDFForge Alpha 0.2.1
           body: |
             Portable Windows build of PDFForge Alpha 0.2.
 

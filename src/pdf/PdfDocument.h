@@ -84,6 +84,9 @@ private:
                 std::vector<std::uint8_t> bytes, void* document);
 
     void markDirtyLocked();
+    void bakeLocked();
+    void rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
+                           const Color& color);
     std::vector<std::uint8_t> saveToMemoryLocked() const;
     void reloadFromBytesLocked(std::vector<std::uint8_t> bytes);
     void writeBytesToPath(const std::vector<std::uint8_t>& bytes,

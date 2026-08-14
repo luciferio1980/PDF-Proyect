@@ -154,6 +154,193 @@ void PdfDocument::markDirtyLocked() {
     dirty_ = true;
 }
 
+void PdfDocument::bakeLocked() {
+    auto baked = saveToMemoryLocked();
+    reloadFromBytesLocked(std::move(baked));
+}
+
+int indexOfPageObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj) {
+    if (!page || !obj) {
+        return -1;
+    }
+    const int n = FPDFPage_CountObjects(page);
+    for (int i = 0; i < n; ++i) {
+        if (FPDFPage_GetObject(page, i) == obj) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
+                                    const Color& color) {
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
+    if (!page) {
+        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
+    }
+    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
+    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
+
+    double originX = static_cast<double>(span.x);
+    double originY = static_cast<double>(span.baseline);
+    if (text && span.pdfCharStart >= 0) {
+        FPDFText_GetCharOrigin(text, span.pdfCharStart, &originX, &originY);
+    }
+
+    FS_MATRIX matrix{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
+    bool hasMatrix = obj && FPDFPageObj_GetMatrix(obj, &matrix) != 0;
+    float size = fontSize > 0 ? fontSize : (span.fontSize > 0 ? span.fontSize : 12.0f);
+    if (obj) {
+        float existing = size;
+        if (FPDFTextObj_GetFontSize(obj, &existing) && existing > 0 && fontSize <= 0) {
+            size = existing;
+        }
+    }
+    unsigned r = toByte(color.toRgb().c0);
+    unsigned g = toByte(color.toRgb().c1);
+    unsigned b = toByte(color.toRgb().c2);
+    unsigned a = toByte(color.toRgb().alpha);
+    if (obj) {
+        FPDFPageObj_GetFillColor(obj, &r, &g, &b, &a);
+        if (color.alpha > 0) {
+            const Color rgb = color.toRgb();
+            r = toByte(rgb.c0);
+            g = toByte(rgb.c1);
+            b = toByte(rgb.c2);
+            a = toByte(rgb.alpha);
+        }
+    }
+
+    std::string next = utf8;
+    if (text && obj && !utf8.empty()) {
+        const std::string current = textObjectUtf8(obj, text);
+        if (!span.text.empty() && current.find(span.text) != std::string::npos &&
+            current != span.text) {
+            next = replaceUtf8Once(current, span.text, utf8);
+        }
+    }
+    const int oldIndex = indexOfPageObject(page, obj);
+    if (text) {
+        FPDFText_ClosePage(text);
+        text = nullptr;
+    }
+
+    if (next.empty()) {
+        if (!obj || oldIndex < 0) {
+            FPDF_ClosePage(page);
+            throw Error(Status::EditFailed, "no PDF text object for span");
+        }
+        if (!FPDFPage_RemoveObject(page, obj)) {
+            FPDF_ClosePage(page);
+            throw Error(Status::EditFailed, "FPDFPage_RemoveObject failed");
+        }
+        FPDFPageObj_Destroy(obj);
+        generateOrThrow(page);
+        FPDF_ClosePage(page);
+        bakeLocked();
+        return;
+    }
+
+    const bool sizeInMatrix =
+        hasMatrix && size > 2.0f &&
+        std::fabs(std::hypot(matrix.a, matrix.b) - size) < 0.75f;
+    FPDF_PAGEOBJECT neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
+                                                 standardFontFor(span.fontWeight, span.italic),
+                                                 sizeInMatrix ? 1.0f : size);
+    if (!neu || !setObjectText(neu, next)) {
+        if (neu) {
+            FPDFPageObj_Destroy(neu);
+        }
+        FPDF_ClosePage(page);
+        throw Error(Status::EditFailed, "could not create replacement text object");
+    }
+    if (hasMatrix) {
+        FPDFPageObj_SetMatrix(neu, &matrix);
+    } else {
+        FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
+        FPDFPageObj_SetMatrix(neu, &placed);
+    }
+    FPDFPageObj_SetFillColor(neu, r, g, b, a);
+
+    if (obj && oldIndex >= 0) {
+        if (!FPDFPage_RemoveObject(page, obj)) {
+            FPDFPageObj_Destroy(neu);
+            FPDF_ClosePage(page);
+            throw Error(Status::EditFailed, "could not remove original text object");
+        }
+        FPDFPageObj_Destroy(obj);
+        const int count = FPDFPage_CountObjects(page);
+        const int at = std::min(oldIndex, count);
+        if (!FPDFPage_InsertObjectAtIndex(page, neu, static_cast<size_t>(at))) {
+            if (!FPDFPage_InsertObject(page, neu)) {
+                FPDF_ClosePage(page);
+                throw Error(Status::EditFailed, "could not insert replacement text object");
+            }
+        }
+    } else if (obj) {
+        // Text lives inside a form XObject: SetText in place, drop the unused new object.
+        FPDFPageObj_Destroy(neu);
+        if (!setObjectText(obj, next) ||
+            !FPDFPageObj_SetFillColor(obj, r, g, b, a) ||
+            (fontSize > 0 && !FPDFTextObj_SetFontSize(obj, size))) {
+            FPDF_ClosePage(page);
+            throw Error(Status::EditFailed, "could not edit nested text object");
+        }
+    } else {
+        if (!FPDFPage_InsertObject(page, neu)) {
+            FPDF_ClosePage(page);
+            throw Error(Status::EditFailed, "could not insert replacement text object");
+        }
+    }
+
+    generateOrThrow(page);
+    FPDF_ClosePage(page);
+    bakeLocked();
+}
+
+void PdfDocument::replaceSpanText(const TextSpan& span, const std::string& utf8) {
+    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "replaceSpanText");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    rewriteSpanLocked(span, utf8, span.fontSize, span.color);
+}
+
+void PdfDocument::setSpanColor(const TextSpan& span, const Color& color) {
+    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "setSpanColor");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    rewriteSpanLocked(span, span.text, span.fontSize, color);
+}
+
+void PdfDocument::setSpanFontSize(const TextSpan& span, float fontSize) {
+    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "setSpanFontSize");
+    }
+    if (fontSize <= 0.0f || fontSize > 200.0f) {
+        throw Error(Status::InvalidArgument, "font size out of range");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    rewriteSpanLocked(span, span.text, fontSize, span.color);
+}
+
+void PdfDocument::editSpan(const TextSpan& span, const std::string& utf8, float fontSize,
+                           const Color& color) {
+    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "editSpan");
+    }
+    if (fontSize <= 0.0f || fontSize > 200.0f) {
+        throw Error(Status::InvalidArgument, "font size out of range");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    rewriteSpanLocked(span, utf8, fontSize, color);
+}
+
 void PdfDocument::save(const std::filesystem::path& destination) {
     if (destination.empty()) {
         throw Error(Status::InvalidArgument, "empty destination");
@@ -179,215 +366,6 @@ bool PdfDocument::undo() {
     return true;
 }
 
-void PdfDocument::replaceSpanText(const TextSpan& span, const std::string& utf8) {
-    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
-        throw Error(Status::PageOutOfRange, "replaceSpanText");
-    }
-    auto api = runtime_->lock();
-    markDirtyLocked();
-    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
-    if (!page) {
-        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
-    }
-    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
-    if (!obj) {
-        if (text) {
-            FPDFText_ClosePage(text);
-        }
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "no PDF text object for span");
-    }
-
-    if (utf8.empty()) {
-        if (text) {
-            FPDFText_ClosePage(text);
-        }
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "FPDFPage_RemoveObject failed");
-        }
-        FPDFPageObj_Destroy(obj);
-        generateOrThrow(page);
-        FPDF_ClosePage(page);
-        return;
-    }
-
-    std::string next = utf8;
-    if (text) {
-        const std::string current = textObjectUtf8(obj, text);
-        if (!span.text.empty() && current.find(span.text) != std::string::npos &&
-            current != span.text) {
-            next = replaceUtf8Once(current, span.text, utf8);
-        }
-        FPDFText_ClosePage(text);
-        text = nullptr;
-    }
-
-    bool ok = setObjectText(obj, next);
-    if (!ok) {
-        FS_MATRIX matrix{};
-        FPDFPageObj_GetMatrix(obj, &matrix);
-        float size = span.fontSize > 0 ? span.fontSize : 12.0f;
-        FPDFTextObj_GetFontSize(obj, &size);
-        unsigned r = 0, g = 0, b = 0, a = 255;
-        FPDFPageObj_GetFillColor(obj, &r, &g, &b, &a);
-        FPDF_PAGEOBJECT neu = FPDFPageObj_NewTextObj(
-            static_cast<FPDF_DOCUMENT>(document_), standardFontFor(span.fontWeight, span.italic),
-            size);
-        if (!neu || !setObjectText(neu, next)) {
-            if (neu) {
-                FPDFPageObj_Destroy(neu);
-            }
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "FPDFText_SetText failed");
-        }
-        FPDFPageObj_SetMatrix(neu, &matrix);
-        FPDFPageObj_SetFillColor(neu, r, g, b, a);
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDFPageObj_Destroy(neu);
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not replace text object");
-        }
-        FPDFPageObj_Destroy(obj);
-        FPDFPage_InsertObject(page, neu);
-        ok = true;
-    }
-    generateOrThrow(page);
-    FPDF_ClosePage(page);
-}
-
-void PdfDocument::setSpanColor(const TextSpan& span, const Color& color) {
-    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
-        throw Error(Status::PageOutOfRange, "setSpanColor");
-    }
-    const Color rgb = color.toRgb();
-    auto api = runtime_->lock();
-    markDirtyLocked();
-    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
-    if (!page) {
-        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
-    }
-    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
-    if (text) {
-        FPDFText_ClosePage(text);
-    }
-    if (!obj) {
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "no PDF text object for span");
-    }
-    if (!FPDFPageObj_SetFillColor(obj, toByte(rgb.c0), toByte(rgb.c1), toByte(rgb.c2),
-                                  toByte(rgb.alpha))) {
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "FPDFPageObj_SetFillColor failed");
-    }
-    generateOrThrow(page);
-    FPDF_ClosePage(page);
-}
-
-void PdfDocument::setSpanFontSize(const TextSpan& span, float fontSize) {
-    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
-        throw Error(Status::PageOutOfRange, "setSpanFontSize");
-    }
-    if (fontSize <= 0.0f || fontSize > 200.0f) {
-        throw Error(Status::InvalidArgument, "font size out of range");
-    }
-    auto api = runtime_->lock();
-    markDirtyLocked();
-    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
-    if (!page) {
-        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
-    }
-    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
-    if (text) {
-        FPDFText_ClosePage(text);
-    }
-    if (!obj) {
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "no PDF text object for span");
-    }
-    if (!FPDFTextObj_SetFontSize(obj, fontSize)) {
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "FPDFTextObj_SetFontSize failed");
-    }
-    generateOrThrow(page);
-    FPDF_ClosePage(page);
-}
-
-void PdfDocument::editSpan(const TextSpan& span, const std::string& utf8, float fontSize,
-                           const Color& color) {
-    if (span.pageIndex < 0 || span.pageIndex >= pageCount_) {
-        throw Error(Status::PageOutOfRange, "editSpan");
-    }
-    if (fontSize <= 0.0f || fontSize > 200.0f) {
-        throw Error(Status::InvalidArgument, "font size out of range");
-    }
-    const Color rgb = color.toRgb();
-    auto api = runtime_->lock();
-    markDirtyLocked();
-    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
-    if (!page) {
-        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
-    }
-    FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
-    std::string next = utf8;
-    if (text && obj) {
-        const std::string current = textObjectUtf8(obj, text);
-        if (!span.text.empty() && !utf8.empty() && current.find(span.text) != std::string::npos &&
-            current != span.text) {
-            next = replaceUtf8Once(current, span.text, utf8);
-        }
-        FPDFText_ClosePage(text);
-        text = nullptr;
-    } else if (text) {
-        FPDFText_ClosePage(text);
-    }
-    if (!obj) {
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "no PDF text object for span");
-    }
-    FPDFTextObj_SetFontSize(obj, fontSize);
-    FPDFPageObj_SetFillColor(obj, toByte(rgb.c0), toByte(rgb.c1), toByte(rgb.c2), toByte(rgb.alpha));
-    if (next.empty()) {
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "FPDFPage_RemoveObject failed");
-        }
-        FPDFPageObj_Destroy(obj);
-        generateOrThrow(page);
-        FPDF_ClosePage(page);
-        return;
-    }
-    if (!setObjectText(obj, next)) {
-        FS_MATRIX matrix{};
-        FPDFPageObj_GetMatrix(obj, &matrix);
-        FPDF_PAGEOBJECT neu = FPDFPageObj_NewTextObj(
-            static_cast<FPDF_DOCUMENT>(document_), standardFontFor(span.fontWeight, span.italic),
-            fontSize);
-        if (!neu || !setObjectText(neu, next)) {
-            if (neu) {
-                FPDFPageObj_Destroy(neu);
-            }
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "FPDFText_SetText failed");
-        }
-        FPDFPageObj_SetMatrix(neu, &matrix);
-        FPDFPageObj_SetFillColor(neu, toByte(rgb.c0), toByte(rgb.c1), toByte(rgb.c2),
-                                 toByte(rgb.alpha));
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDFPageObj_Destroy(neu);
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not replace text object");
-        }
-        FPDFPageObj_Destroy(obj);
-        FPDFPage_InsertObject(page, neu);
-    }
-    generateOrThrow(page);
-    FPDF_ClosePage(page);
-}
 
 void PdfDocument::deleteSpan(const TextSpan& span) {
     replaceSpanText(span, {});
@@ -429,6 +407,7 @@ void PdfDocument::addText(int pageIndex, PointF pagePoint, const std::string& ut
     }
     generateOrThrow(page);
     FPDF_ClosePage(page);
+    bakeLocked();
 }
 
 void PdfDocument::setPageRotation(int pageIndex, int quarterTurns) {
