@@ -4,6 +4,7 @@
 #include "ui/Theme.h"
 
 #include <QEvent>
+#include <QFont>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMouseEvent>
@@ -36,8 +37,10 @@ PdfCanvas::PdfCanvas(QWidget* parent) : QWidget(parent) {
     setMinimumSize(200, 200);
     setAutoFillBackground(false);
     editor_ = new QLineEdit(this);
+    editor_->setObjectName(QStringLiteral("pdfInlineEditor"));
     editor_->hide();
     editor_->setFrame(true);
+    editor_->setAutoFillBackground(true);
     editor_->installEventFilter(this);
     connect(editor_, &QLineEdit::returnPressed, this, [this]() { finishInlineEdit(true); });
 }
@@ -246,8 +249,12 @@ void PdfCanvas::beginInlineEdit() {
     if (poly.isEmpty()) {
         return;
     }
-    const QRect rect = poly.boundingRect().adjusted(-2, -2, 2, 2).toRect();
+    const QRect rect = poly.boundingRect().adjusted(-4, -4, 8, 4).toRect();
     editingSpan_ = selectedSpan_;
+    QFont font = editor_->font();
+    const int pixelSize = std::max(10, static_cast<int>(std::lround(span.fontSize * dpi() / 72.0f)));
+    font.setPixelSize(pixelSize);
+    editor_->setFont(font);
     editor_->setGeometry(rect);
     editor_->setText(QString::fromStdString(span.text));
     editor_->show();
@@ -294,6 +301,15 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
     const QPoint off = imageOffset();
     p.fillRect(QRect(off, image_.size()).adjusted(-8, -8, 8, 8), theme().panel);
     p.drawImage(off, image_);
+    if (editor_->isVisible() && editingSpan_ >= 0 &&
+        editingSpan_ < static_cast<int>(spans_.size())) {
+        const QPolygonF cover = spanPolygon(spans_[static_cast<std::size_t>(editingSpan_)].bounds());
+        if (!cover.isEmpty()) {
+            p.setBrush(theme().paper);
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(cover);
+        }
+    }
 
     const auto drawPoly = [&](const pdfforge::RectF& bounds, const QColor& fill, const QColor& stroke) {
         const QPolygonF poly = spanPolygon(bounds);
@@ -305,14 +321,16 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
         p.drawPolygon(poly);
     };
 
-    if (hoverSpan_ >= 0 && hoverSpan_ < static_cast<int>(spans_.size())) {
+    if (hoverSpan_ >= 0 && hoverSpan_ < static_cast<int>(spans_.size()) &&
+        !(editor_->isVisible() && hoverSpan_ == editingSpan_)) {
         QColor fill = theme().copper;
         fill.setAlpha(36);
         QColor stroke = theme().copper;
         stroke.setAlpha(140);
         drawPoly(spans_[static_cast<std::size_t>(hoverSpan_)].bounds(), fill, stroke);
     }
-    if (selectedSpan_ >= 0 && selectedSpan_ < static_cast<int>(spans_.size())) {
+    if (selectedSpan_ >= 0 && selectedSpan_ < static_cast<int>(spans_.size()) &&
+        !(editor_->isVisible() && selectedSpan_ == editingSpan_)) {
         QColor fill = theme().copper;
         fill.setAlpha(70);
         drawPoly(spans_[static_cast<std::size_t>(selectedSpan_)].bounds(), fill, theme().copper);

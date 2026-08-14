@@ -67,6 +67,13 @@ QString styleSheet() {
             color: #E8E4DC;
             selection-background-color: #C45C26;
         }
+        QLineEdit#pdfInlineEditor {
+            background: #F4F1EA;
+            color: #1B1814;
+            border: 1px solid #C45C26;
+            selection-background-color: #C45C26;
+            selection-color: #FFF8F0;
+        }
         QDockWidget {
             titlebar-close-icon: none;
             color: #E8E4DC;

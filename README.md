@@ -12,7 +12,7 @@ an official alternative to any other vendor.
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.1-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.2-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 A sample PDF opens automatically. Do not run the exe from inside the zip.

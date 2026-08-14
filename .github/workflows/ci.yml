@@ -68,13 +68,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.1-alpha
-          name: PDFForge Alpha 0.2.1
+          tag_name: v0.2.2-alpha
+          name: PDFForge Alpha 0.2.2
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.
+            Portable Windows build of PDFForge Alpha 0.2.2.
 
-            Double-click text to edit it. Save rewrites PDF text objects
-            (not a white overlay). Visual C++ runtime is included.
+            Text edits now replace the original PDF glyphs instead of
+            drawing the new string on top of the old one. Press Enter to
+            confirm, then File → Save.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

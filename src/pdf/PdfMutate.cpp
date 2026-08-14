@@ -172,6 +172,128 @@ int indexOfPageObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj) {
     return -1;
 }
 
+void dirtyObjectTree(FPDF_PAGEOBJECT obj) {
+    if (!obj) {
+        return;
+    }
+    // Identity transform marks the object dirty so GenerateContent rewrites
+    // its original stream instead of appending a new one on top of it.
+    FPDFPageObj_Transform(obj, 1, 0, 0, 1, 0, 0);
+    if (FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_FORM) {
+        return;
+    }
+    const int n = FPDFFormObj_CountObjects(obj);
+    for (int i = 0; i < n; ++i) {
+        dirtyObjectTree(FPDFFormObj_GetObject(obj, static_cast<unsigned long>(i)));
+    }
+}
+
+void dirtyAllPageObjects(FPDF_PAGE page) {
+    const int n = FPDFPage_CountObjects(page);
+    for (int i = 0; i < n; ++i) {
+        dirtyObjectTree(FPDFPage_GetObject(page, i));
+    }
+}
+
+bool formContains(FPDF_PAGEOBJECT form, FPDF_PAGEOBJECT target) {
+    if (!form || !target) {
+        return false;
+    }
+    const int n = FPDFFormObj_CountObjects(form);
+    for (int i = 0; i < n; ++i) {
+        FPDF_PAGEOBJECT child = FPDFFormObj_GetObject(form, static_cast<unsigned long>(i));
+        if (!child) {
+            continue;
+        }
+        if (child == target) {
+            return true;
+        }
+        if (FPDFPageObj_GetType(child) == FPDF_PAGEOBJ_FORM && formContains(child, target)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+FPDF_PAGEOBJECT immediateFormParent(FPDF_PAGEOBJECT form, FPDF_PAGEOBJECT target) {
+    if (!form || !target) {
+        return nullptr;
+    }
+    const int n = FPDFFormObj_CountObjects(form);
+    for (int i = 0; i < n; ++i) {
+        FPDF_PAGEOBJECT child = FPDFFormObj_GetObject(form, static_cast<unsigned long>(i));
+        if (!child) {
+            continue;
+        }
+        if (child == target) {
+            return form;
+        }
+        if (FPDFPageObj_GetType(child) == FPDF_PAGEOBJ_FORM) {
+            if (FPDF_PAGEOBJECT found = immediateFormParent(child, target)) {
+                return found;
+            }
+        }
+    }
+    return nullptr;
+}
+
+FPDF_PAGEOBJECT findFormContaining(FPDF_PAGE page, FPDF_PAGEOBJECT target) {
+    if (!page || !target) {
+        return nullptr;
+    }
+    const int n = FPDFPage_CountObjects(page);
+    for (int i = 0; i < n; ++i) {
+        FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+        if (obj && FPDFPageObj_GetType(obj) == FPDF_PAGEOBJ_FORM && formContains(obj, target)) {
+            return obj;
+        }
+    }
+    return nullptr;
+}
+
+bool insertOwnedObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj, int at) {
+    const int count = FPDFPage_CountObjects(page);
+    if (at >= 0 && at <= count) {
+        if (FPDFPage_InsertObjectAtIndex(page, obj, static_cast<size_t>(at))) {
+            return true;
+        }
+    }
+    return FPDFPage_InsertObject(page, obj) != 0;
+}
+
+void dropInactiveObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj) {
+    if (!obj) {
+        return;
+    }
+    FPDFPageObj_SetIsActive(obj, false);
+    if (FPDFPage_RemoveObject(page, obj)) {
+        FPDFPageObj_Destroy(obj);
+    }
+}
+
+void eraseFromContentStream(FPDF_PAGE page, FPDF_PAGEOBJECT obj, int pageObjectIndex,
+                            FPDF_PAGEOBJECT formRoot, FPDF_PAGEOBJECT formParent) {
+    if (!obj) {
+        return;
+    }
+    // Inactive objects are omitted when PDFium rewrites a dirty stream, so the
+    // original Tj/TJ operators disappear instead of remaining under the new text.
+    FPDFPageObj_SetIsActive(obj, false);
+    dirtyAllPageObjects(page);
+    if (formRoot) {
+        dirtyObjectTree(formRoot);
+    }
+    generateOrThrow(page);
+    if (pageObjectIndex >= 0) {
+        dropInactiveObject(page, obj);
+    } else if (formParent) {
+        if (FPDFFormObj_RemoveObject(formParent, obj)) {
+            FPDFPageObj_Destroy(obj);
+        }
+    }
+    generateOrThrow(page);
+}
+
 void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
                                     const Color& color) {
     FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), span.pageIndex);
@@ -220,80 +342,67 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
         }
     }
     const int oldIndex = indexOfPageObject(page, obj);
+    FPDF_PAGEOBJECT formRoot = nullptr;
+    FPDF_PAGEOBJECT formParent = nullptr;
+    if (obj && oldIndex < 0) {
+        formRoot = findFormContaining(page, obj);
+        if (formRoot) {
+            formParent = immediateFormParent(formRoot, obj);
+        }
+    }
     if (text) {
         FPDFText_ClosePage(text);
         text = nullptr;
     }
 
-    if (next.empty()) {
-        if (!obj || oldIndex < 0) {
+    FPDF_PAGEOBJECT neu = nullptr;
+    if (!next.empty()) {
+        const bool sizeInMatrix =
+            hasMatrix && oldIndex >= 0 && size > 2.0f &&
+            std::fabs(std::hypot(matrix.a, matrix.b) - size) < 0.75f;
+        neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
+                                     standardFontFor(span.fontWeight, span.italic),
+                                     sizeInMatrix ? 1.0f : size);
+        if (!neu || !setObjectText(neu, next)) {
+            if (neu) {
+                FPDFPageObj_Destroy(neu);
+            }
             FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "no PDF text object for span");
+            throw Error(Status::EditFailed, "could not create replacement text object");
         }
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "FPDFPage_RemoveObject failed");
+        if (hasMatrix && oldIndex >= 0) {
+            FPDFPageObj_SetMatrix(neu, &matrix);
+        } else {
+            FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
+            FPDFPageObj_SetMatrix(neu, &placed);
         }
-        FPDFPageObj_Destroy(obj);
-        generateOrThrow(page);
+        FPDFPageObj_SetFillColor(neu, r, g, b, a);
+    } else if (!obj || (oldIndex < 0 && !formParent)) {
         FPDF_ClosePage(page);
-        bakeLocked();
-        return;
+        throw Error(Status::EditFailed, "no PDF text object for span");
     }
 
-    const bool sizeInMatrix =
-        hasMatrix && size > 2.0f &&
-        std::fabs(std::hypot(matrix.a, matrix.b) - size) < 0.75f;
-    FPDF_PAGEOBJECT neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
-                                                 standardFontFor(span.fontWeight, span.italic),
-                                                 sizeInMatrix ? 1.0f : size);
-    if (!neu || !setObjectText(neu, next)) {
+    bool inserted = false;
+    try {
+        if (!(obj && (oldIndex >= 0 || formParent))) {
+            throw Error(Status::EditFailed, "could not locate text object to replace");
+        }
+        eraseFromContentStream(page, obj, oldIndex, formRoot, formParent);
         if (neu) {
-            FPDFPageObj_Destroy(neu);
-        }
-        FPDF_ClosePage(page);
-        throw Error(Status::EditFailed, "could not create replacement text object");
-    }
-    if (hasMatrix) {
-        FPDFPageObj_SetMatrix(neu, &matrix);
-    } else {
-        FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
-        FPDFPageObj_SetMatrix(neu, &placed);
-    }
-    FPDFPageObj_SetFillColor(neu, r, g, b, a);
-
-    if (obj && oldIndex >= 0) {
-        if (!FPDFPage_RemoveObject(page, obj)) {
-            FPDFPageObj_Destroy(neu);
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not remove original text object");
-        }
-        FPDFPageObj_Destroy(obj);
-        const int count = FPDFPage_CountObjects(page);
-        const int at = std::min(oldIndex, count);
-        if (!FPDFPage_InsertObjectAtIndex(page, neu, static_cast<size_t>(at))) {
-            if (!FPDFPage_InsertObject(page, neu)) {
-                FPDF_ClosePage(page);
+            if (!insertOwnedObject(page, neu, oldIndex)) {
                 throw Error(Status::EditFailed, "could not insert replacement text object");
             }
+            inserted = true;
+            generateOrThrow(page);
         }
-    } else if (obj) {
-        // Text lives inside a form XObject: SetText in place, drop the unused new object.
-        FPDFPageObj_Destroy(neu);
-        if (!setObjectText(obj, next) ||
-            !FPDFPageObj_SetFillColor(obj, r, g, b, a) ||
-            (fontSize > 0 && !FPDFTextObj_SetFontSize(obj, size))) {
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not edit nested text object");
+    } catch (...) {
+        if (neu && !inserted) {
+            FPDFPageObj_Destroy(neu);
         }
-    } else {
-        if (!FPDFPage_InsertObject(page, neu)) {
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not insert replacement text object");
-        }
+        FPDF_ClosePage(page);
+        throw;
     }
 
-    generateOrThrow(page);
     FPDF_ClosePage(page);
     bakeLocked();
 }

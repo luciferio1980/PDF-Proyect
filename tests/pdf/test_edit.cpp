@@ -6,6 +6,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <string>
 
 namespace {
 
@@ -46,13 +48,18 @@ TEST(EditReplacesTextObjectAndSaves) {
     CHECK(contains(target.text, "PDFForge"));
     doc->replaceSpanText(target, "PDFForge Edited");
     CHECK(contains(doc->extractPlainText(0), "PDFForge Edited"));
-    CHECK(!contains(doc->extractPlainText(0), target.text));
+    CHECK(!contains(doc->extractPlainText(0), "Hello PDFForge"));
+    CHECK(contains(doc->extractPlainText(0), "TOTAL: 1.250,00 EUR"));
     CHECK(doc->dirty());
     doc->save(dst);
 
     auto reopened = pdfforge::PdfDocument::open(runtime, dst);
     CHECK(contains(reopened->extractPlainText(0), "PDFForge Edited"));
     CHECK(!contains(reopened->extractPlainText(0), "Hello PDFForge"));
+    CHECK(contains(reopened->extractPlainText(0), "TOTAL: 1.250,00 EUR"));
+    std::ifstream in(dst, std::ios::binary);
+    const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(!contains(saved, "Hello PDFForge"));
 }
 
 TEST(EditUndoRestoresPreviousText) {
@@ -142,13 +149,59 @@ TEST(EditChangesRenderedPixelsAndSurvivesReopen) {
     }
     doc->replaceSpanText(target, "ZZZZ EDIT STICKS");
     CHECK(contains(doc->extractPlainText(0), "ZZZZ EDIT STICKS"));
+    CHECK(!contains(doc->extractPlainText(0), "Hello PDFForge"));
+    CHECK(contains(doc->extractPlainText(0), "TOTAL: 1.250,00 EUR"));
     const auto after = doc->render(req);
     const auto diff = pdfforge::compareBitmaps(before, after);
     CHECK(diff.differentPixels > 10);
     doc->save(dst);
     auto reopened = pdfforge::PdfDocument::open(runtime, dst);
     CHECK(contains(reopened->extractPlainText(0), "ZZZZ EDIT STICKS"));
+    CHECK(!contains(reopened->extractPlainText(0), "Hello PDFForge"));
+    CHECK(contains(reopened->extractPlainText(0), "TOTAL: 1.250,00 EUR"));
     const auto again = reopened->render(req);
     const auto diffSaved = pdfforge::compareBitmaps(before, again);
     CHECK(diffSaved.differentPixels > 10);
+    std::ifstream in(dst, std::ios::binary);
+    const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(!contains(saved, "Hello PDFForge"));
+}
+
+TEST(EditDoesNotStackOriginalTextOnRepeatedReplace) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-stack-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-stack-dst");
+    const auto src = copyFixture("TEST_01_SIMPLE_TEXT.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    auto spans = doc->extractText(0);
+    CHECK(!spans.empty());
+    pdfforge::TextSpan target = spans.front();
+    for (const auto& s : spans) {
+        if (contains(s.text, "PDFForge")) {
+            target = s;
+            break;
+        }
+    }
+    doc->replaceSpanText(target, "FIRST REPLACE");
+    auto mid = doc->extractText(0);
+    CHECK(!mid.empty());
+    pdfforge::TextSpan again = mid.front();
+    for (const auto& s : mid) {
+        if (contains(s.text, "FIRST REPLACE")) {
+            again = s;
+            break;
+        }
+    }
+    doc->replaceSpanText(again, "SECOND REPLACE");
+    const auto plain = doc->extractPlainText(0);
+    CHECK(contains(plain, "SECOND REPLACE"));
+    CHECK(!contains(plain, "FIRST REPLACE"));
+    CHECK(!contains(plain, "Hello PDFForge"));
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    const auto savedPlain = reopened->extractPlainText(0);
+    CHECK(contains(savedPlain, "SECOND REPLACE"));
+    CHECK(!contains(savedPlain, "FIRST REPLACE"));
+    CHECK(!contains(savedPlain, "Hello PDFForge"));
 }
