@@ -47,11 +47,10 @@ See the tree in the repository root. Core code lives in `src/`. Tests live in
 - Do not add GPL/AGPL libraries
 - Do not implement text edit as “white rectangle + overlay”
 
-## Known Alpha 0.1 limitations
+## Known Alpha 0.2 limitations
 
 - Page raster and thumbnail generation can block the UI on huge pages
-- Hover highlight mapping is exact for hit-tests; painted highlight assumes
-  rotation 0
-- No content-stream editing yet
+- Subsetted fonts may not contain glyphs for newly typed characters; PDFForge
+  then replaces that object with a standard Helvetica text object
 - Embedded font subsetting / licensing of customer fonts is not handled
-- Digital signatures are not implemented
+- Digital signatures, annotations, forms, and redaction are not implemented

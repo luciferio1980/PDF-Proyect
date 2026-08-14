@@ -4,6 +4,7 @@
 #include "core/Geometry.h"
 #include "model/Objects.h"
 #include "model/PageClassification.h"
+#include "ocr/OcrTypes.h"
 #include "renderer/Bitmap.h"
 
 #include <cstddef>
@@ -37,6 +38,8 @@ public:
 
     [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
     [[nodiscard]] int pageCount() const noexcept { return pageCount_; }
+    [[nodiscard]] bool dirty() const noexcept { return dirty_; }
+    [[nodiscard]] bool canUndo() const noexcept { return !undo_.empty(); }
     [[nodiscard]] SizeF pageSize(int pageIndex) const;
     [[nodiscard]] int pageRotation(int pageIndex) const;
     [[nodiscard]] Metadata metadata() const;
@@ -49,18 +52,50 @@ public:
     [[nodiscard]] Bitmap render(const RenderRequest& request) const;
     [[nodiscard]] bool deviceToPage(int pageIndex, const RenderRequest& request, float deviceX,
                                     float deviceY, PointF& pagePoint) const;
+    [[nodiscard]] bool pageToDevice(int pageIndex, const RenderRequest& request, float pageX,
+                                    float pageY, PointF& devicePoint) const;
 
+    // Lossless copy of the original file when unmodified; otherwise writes the
+    // in-memory edited document. Never overwrites the original path.
     void writeCopy(const std::filesystem::path& destination) const;
+
+    // Persist the in-memory document (including edits) via PDFium SaveAsCopy.
+    void save(const std::filesystem::path& destination);
+
+    bool undo();
+
+    void replaceSpanText(const TextSpan& span, const std::string& utf8);
+    void setSpanColor(const TextSpan& span, const Color& color);
+    void setSpanFontSize(const TextSpan& span, float fontSize);
+    void editSpan(const TextSpan& span, const std::string& utf8, float fontSize, const Color& color);
+    void deleteSpan(const TextSpan& span);
+    void addText(int pageIndex, PointF pagePoint, const std::string& utf8, float fontSize,
+                 const Color& color);
+
+    void setPageRotation(int pageIndex, int quarterTurns);
+    void deletePage(int pageIndex);
+    void insertBlankPage(int atIndex, SizeF size);
+    void importPages(const std::filesystem::path& sourcePdf, int atIndex);
+
+    void addInvisibleOcrLayer(int pageIndex, const OcrPageResult& ocr, float sourceDpi);
 
 private:
     PdfDocument(std::shared_ptr<PdfiumRuntime> runtime, std::filesystem::path path,
                 std::vector<std::uint8_t> bytes, void* document);
+
+    void markDirtyLocked();
+    std::vector<std::uint8_t> saveToMemoryLocked() const;
+    void reloadFromBytesLocked(std::vector<std::uint8_t> bytes);
+    void writeBytesToPath(const std::vector<std::uint8_t>& bytes,
+                          const std::filesystem::path& destination) const;
 
     std::shared_ptr<PdfiumRuntime> runtime_;
     std::filesystem::path path_;
     std::vector<std::uint8_t> bytes_;
     void* document_ = nullptr;  // FPDF_DOCUMENT
     int pageCount_ = 0;
+    bool dirty_ = false;
+    std::vector<std::vector<std::uint8_t>> undo_;
 };
 
 }  // namespace pdfforge

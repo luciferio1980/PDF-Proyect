@@ -3,10 +3,13 @@
 #include "core/Geometry.h"
 #include "fonts/FontDetector.h"
 
+#include "fpdf_edit.h"
 #include "fpdf_text.h"
 
 #include <cmath>
 #include <cctype>
+#include <algorithm>
+#include <unordered_map>
 
 namespace pdfforge {
 namespace {
@@ -70,10 +73,20 @@ void appendUtf8(std::string& out, char32_t cp) {
 
 }  // namespace
 
-std::vector<TextSpan> extractTextSpans(FPDF_TEXTPAGE textPage, int pageIndex) {
+std::vector<TextSpan> extractTextSpans(FPDF_PAGE page, FPDF_TEXTPAGE textPage, int pageIndex) {
     std::vector<TextSpan> spans;
     if (!textPage) {
         return spans;
+    }
+    std::unordered_map<FPDF_PAGEOBJECT, int> objectIndex;
+    if (page) {
+        const int objectCount = FPDFPage_CountObjects(page);
+        objectIndex.reserve(static_cast<std::size_t>(std::max(0, objectCount)));
+        for (int i = 0; i < objectCount; ++i) {
+            if (FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i)) {
+                objectIndex[obj] = i;
+            }
+        }
     }
     const int count = FPDFText_CountChars(textPage);
     TextSpan current;
@@ -157,6 +170,12 @@ std::vector<TextSpan> extractTextSpans(FPDF_TEXTPAGE textPage, int pageIndex) {
             current.rotation = rotation;
             current.pdfCharStart = i;
             current.pdfCharEnd = i + 1;
+            current.pageObjectIndex = -1;
+            if (FPDF_PAGEOBJECT obj = FPDFText_GetTextObject(textPage, i)) {
+                if (auto it = objectIndex.find(obj); it != objectIndex.end()) {
+                    current.pageObjectIndex = it->second;
+                }
+            }
             current.text.clear();
             appendUtf8(current.text, static_cast<char32_t>(uni));
             open = true;

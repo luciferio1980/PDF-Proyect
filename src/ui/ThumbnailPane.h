@@ -14,9 +14,13 @@ public:
     explicit ThumbnailPane(QWidget* parent = nullptr);
     void setDocument(pdfforge::PdfDocument* document);
     void setCurrentPage(int pageIndex);
+    void refreshPage(int pageIndex);
 
 signals:
     void pageActivated(int pageIndex);
+
+private:
+    pdfforge::PdfDocument* document_ = nullptr;
 };
 
 }  // namespace pdfforge::ui

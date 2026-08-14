@@ -7,8 +7,10 @@
 #include <QImage>
 #include <QWidget>
 
-#include <memory>
+#include <optional>
 #include <vector>
+
+class QLineEdit;
 
 namespace pdfforge {
 class PdfDocument;
@@ -26,11 +28,17 @@ public:
     void setZoom(float zoom);
     void setRotation(int quarterTurns);
     void setSearchHits(const std::vector<pdfforge::SearchHit>& hits, int activeIndex);
+    void reload();
+    void setAddTextMode(bool enabled);
+    void beginInlineEdit();
+    void clearSelection();
 
     [[nodiscard]] int pageIndex() const { return pageIndex_; }
     [[nodiscard]] float zoom() const { return zoom_; }
     [[nodiscard]] int rotation() const { return rotation_; }
     [[nodiscard]] float dpi() const;
+    [[nodiscard]] std::optional<pdfforge::TextSpan> selectedSpan() const;
+    [[nodiscard]] bool addTextMode() const { return addTextMode_; }
 
 public slots:
     void zoomIn();
@@ -40,19 +48,31 @@ public slots:
 signals:
     void hoverSpanChanged(const QString& preview);
     void statusMessage(const QString& text);
+    void spanSelected(const pdfforge::TextSpan& span);
+    void selectionCleared();
+    void spanEditCommitted(const pdfforge::TextSpan& span, const QString& text);
+    void emptyPageClicked(const pdfforge::PointF& pagePoint);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void leaveEvent(QEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     void requestRender();
     void applyBitmap(const pdfforge::Bitmap& bitmap);
     QPoint imageOffset() const;
     int hitSpanAt(const QPoint& widgetPos) const;
+    bool widgetToPage(const QPoint& widgetPos, pdfforge::PointF& page) const;
+    QPolygonF spanPolygon(const pdfforge::RectF& bounds) const;
+    void finishInlineEdit(bool commit);
+    void cancelInlineEdit();
+    void loadSpans();
 
     pdfforge::PdfDocument* document_ = nullptr;
     int pageIndex_ = 0;
@@ -63,6 +83,10 @@ private:
     std::vector<pdfforge::SearchHit> hits_;
     int activeHit_ = -1;
     int hoverSpan_ = -1;
+    int selectedSpan_ = -1;
+    bool addTextMode_ = false;
+    QLineEdit* editor_ = nullptr;
+    int editingSpan_ = -1;
 };
 
 }  // namespace pdfforge::ui

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(PDFForge
-    VERSION 0.1.1
+    VERSION 0.2.0
     DESCRIPTION "Independent professional PDF editor"
     LANGUAGES CXX
 )
@@ -73,6 +73,7 @@ set(PDFFORGE_CORE_SOURCES
     src/core/Utf.cpp
     src/pdf/PdfiumRuntime.cpp
     src/pdf/PdfDocument.cpp
+    src/pdf/PdfMutate.cpp
     src/pdf/PdfTextExtractor.cpp
     src/pdf/PageClassifier.cpp
     src/pdf/PdfSearch.cpp
@@ -138,6 +139,7 @@ set(PDFFORGE_UI_SOURCES
     src/ui/ThumbnailPane.cpp
     src/ui/SearchPanel.cpp
     src/ui/MainWindow.cpp
+    src/ui/InspectorPanel.cpp
 )
 
 if(PDFFORGE_BUILD_APP)
@@ -221,6 +223,7 @@ if(PDFFORGE_BUILD_TESTS)
         tests/pdf/test_search.cpp
         tests/pdf/test_classifier.cpp
         tests/pdf/test_save_copy.cpp
+        tests/pdf/test_edit.cpp
         tests/rendering/test_render.cpp
         tests/fonts/test_font_matcher.cpp
         tests/ocr/test_ocr.cpp

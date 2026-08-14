@@ -1,4 +1,4 @@
-PDFForge Alpha 0.1.1
+PDFForge Alpha 0.2
 Independent professional PDF editor
 
 Como usarlo
@@ -12,29 +12,30 @@ Como usarlo
 4. Si aparece "Windows protegio tu PC": Mas informacion > Ejecutar de todas formas.
 5. Se abre un PDF de prueba automaticamente.
 
-Que puedes probar
------------------
-- Zoom: Ctrl + rueda del raton, o los botones Zoom + / -
-- Paginas: miniaturas a la izquierda, o RePag / AvPag
-- Rotar: botones Rotate CW / CCW
+Editar texto
+------------
+- Clic en una linea para seleccionarla (inspector a la derecha).
+- Doble clic o F2 para editar. Enter confirma.
+- Cambia tamano y color en el inspector y pulsa "Apply to PDF".
+- Add text: activa el boton, clic en la pagina, escribe.
+- File > Save guarda el PDF reescrito (no es un recuadro blanco).
+
+Paginas
+-------
+- Rotar pagina, insertar pagina en blanco, borrar pagina, insertar otro PDF.
+
+Que puedes probar tambien
+-------------------------
+- Zoom: Ctrl + rueda del raton
 - Buscar: escribe 1.250,00 y pulsa Enter
-- Guardar copia: File > Save copy (no pisa el original)
+- Guardar copia: File > Save copy (no pisa el original si no has editado)
 
 Si no arranca
 -------------
 Esta carpeta debe contener PDFForge.exe, pdfium.dll, Qt6Core.dll,
 platforms\qwindows.dll, vcruntime140.dll y msvcp140.dll juntas.
-Si falta alguna, descarga de nuevo el zip Alpha 0.1.1.
-
-Si sigue sin abrir, mira si aparece startup.log al lado del .exe
-y envialo.
-
-Que no esta en esta alpha
--------------------------
-Todavia no se puede editar el texto del PDF.
 
 Requisitos
 ----------
 Windows 10/11 de 64 bits.
-Las DLL de Qt y el runtime de Visual C++ van en esta carpeta.
 El procesamiento es local: no se suben documentos.

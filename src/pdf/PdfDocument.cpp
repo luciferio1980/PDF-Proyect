@@ -192,7 +192,7 @@ std::vector<TextSpan> PdfDocument::extractText(int pageIndex) const {
     FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
     std::vector<TextSpan> spans;
     if (text) {
-        spans = extractTextSpans(text, pageIndex);
+        spans = extractTextSpans(page, text, pageIndex);
         FPDFText_ClosePage(text);
     }
     FPDF_ClosePage(page);
@@ -347,6 +347,34 @@ bool PdfDocument::deviceToPage(int pageIndex, const RenderRequest& request, floa
     return ok;
 }
 
+bool PdfDocument::pageToDevice(int pageIndex, const RenderRequest& request, float pageX,
+                               float pageY, PointF& devicePoint) const {
+    if (pageIndex < 0 || pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "pageToDevice");
+    }
+    auto api = runtime_->lock();
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), pageIndex);
+    if (!page) {
+        return false;
+    }
+    const float pageW = FPDF_GetPageWidthF(page);
+    const float pageH = FPDF_GetPageHeightF(page);
+    const int rot = clampRotation(request.rotationQuarterTurns);
+    const bool swapped = (rot % 2) == 1;
+    const float scale = request.dpi / 72.0f;
+    const int width = std::max(1, static_cast<int>(std::lround((swapped ? pageH : pageW) * scale)));
+    const int height = std::max(1, static_cast<int>(std::lround((swapped ? pageW : pageH) * scale)));
+    int dx = 0;
+    int dy = 0;
+    const bool ok = FPDF_PageToDevice(page, 0, 0, width, height, rot, static_cast<double>(pageX),
+                                      static_cast<double>(pageY), &dx, &dy) != 0;
+    FPDF_ClosePage(page);
+    if (ok) {
+        devicePoint = PointF{static_cast<float>(dx), static_cast<float>(dy)};
+    }
+    return ok;
+}
+
 void PdfDocument::writeCopy(const std::filesystem::path& destination) const {
     if (destination.empty()) {
         throw Error(Status::InvalidArgument, "empty destination");
@@ -355,6 +383,14 @@ void PdfDocument::writeCopy(const std::filesystem::path& destination) const {
     if (std::filesystem::exists(destination) &&
         std::filesystem::equivalent(destination, path_, eqEc) && !eqEc) {
         throw Error(Status::InvalidArgument, "refusing to overwrite the original in writeCopy");
+    }
+    if (dirty_) {
+        const auto bytes = [this]() {
+            auto api = runtime_->lock();
+            return saveToMemoryLocked();
+        }();
+        writeBytesToPath(bytes, destination);
+        return;
     }
 #if PDFFORGE_HAS_QPDF
     qpdfWriteCopy(path_, destination);

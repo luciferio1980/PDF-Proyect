@@ -4,9 +4,11 @@
 
 PDF → analyse → OCR only if needed → editable structure → edit → reconstruct PDF.
 
-Alpha 0.1 implements the left half of that pipeline: open, render, extract,
-classify, search, optional OCR, lossless copy. Inline editing is the next
-milestone and must not start from a “cover with a white box” approach.
+Alpha 0.2 implements the loop for native PDF text: open, render, extract,
+classify, search, optional OCR, then rewrite text objects and save. Inline
+editing must not start from a “cover with a white box” approach. The canvas
+caret is only a typing surface; commit calls `FPDFText_SetText` and
+`FPDFPage_GenerateContent`.
 
 ## Process layout
 
@@ -35,9 +37,8 @@ mutex. Every PDFium call runs while that mutex is held. Render requests copy
 pixels out from under the lock so the UI can paint without holding it longer
 than the raster itself.
 
-Alpha 0.1 still rasterises the current page on the UI thread. That is acceptable
-for the test documents; large pages must move to a worker before the editing
-milestone (see DEVELOPMENT.md risks).
+Alpha 0.2 still rasterises the current page on the UI thread. That is acceptable
+for the test documents; large pages should move to a worker.
 
 ## Document model
 
@@ -69,7 +70,7 @@ OCR is never started from `open()`.
 - Logger redacts likely secrets.
 - `writeCopy` refuses to overwrite the original path.
 
-## Later modules (directories exist, not in Alpha 0.1)
+## Later modules (directories exist, not in Alpha 0.2)
 
 annotations, forms, signatures, redaction, conversion, comparison UI,
-licensing UI, crash recovery, text editing engine.
+licensing UI, crash recovery.

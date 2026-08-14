@@ -98,9 +98,28 @@ QString styleSheet() {
             min-height: 24px;
             border-radius: 4px;
         }
-        QMenu {
-            background: #22262C;
+        QFormLayout, QGroupBox {
+            color: #E8E4DC;
+        }
+        QGroupBox {
             border: 1px solid #3A414A;
+            border-radius: 4px;
+            margin-top: 12px;
+            padding-top: 8px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 4px;
+            color: #C45C26;
+        }
+        QPlainTextEdit, QTextEdit {
+            background: #16191D;
+            border: 1px solid #3A414A;
+            color: #E8E4DC;
+        }
+        QCheckBox {
+            color: #E8E4DC;
         }
         QMenu::item:selected {
             background: #C45C26;

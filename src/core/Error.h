@@ -23,6 +23,7 @@ enum class Status {
     IoError,
     Cancelled,
     InternalError,
+    EditFailed,
 };
 
 inline const char* statusToString(Status status) {
@@ -59,6 +60,8 @@ inline const char* statusToString(Status status) {
             return "operation cancelled";
         case Status::InternalError:
             return "internal error";
+        case Status::EditFailed:
+            return "this PDF object could not be edited";
     }
     return "unknown error";
 }

@@ -38,6 +38,7 @@ ThumbnailPane::ThumbnailPane(QWidget* parent) : QListWidget(parent) {
 }
 
 void ThumbnailPane::setDocument(pdfforge::PdfDocument* document) {
+    document_ = document;
     clear();
     if (!document) {
         return;
@@ -65,6 +66,25 @@ void ThumbnailPane::setCurrentPage(int pageIndex) {
         blockSignals(true);
         setCurrentRow(pageIndex);
         blockSignals(false);
+    }
+}
+
+void ThumbnailPane::refreshPage(int pageIndex) {
+    if (!document_ || pageIndex < 0 || pageIndex >= count()) {
+        return;
+    }
+    auto* item = this->item(pageIndex);
+    if (!item) {
+        return;
+    }
+    try {
+        pdfforge::RenderRequest req;
+        req.pageIndex = pageIndex;
+        req.dpi = 36.0f;
+        const auto bmp = document_->render(req);
+        item->setIcon(QIcon(QPixmap::fromImage(toThumb(bmp, 96))));
+    } catch (const pdfforge::Error&) {
+        item->setIcon(QIcon());
     }
 }
 

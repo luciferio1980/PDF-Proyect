@@ -25,6 +25,7 @@ struct TextSpan {
     int pageIndex = 0;
     int pdfCharStart = -1;
     int pdfCharEnd = -1;
+    int pageObjectIndex = -1;
 
     [[nodiscard]] RectF bounds() const { return RectF{x, y, width, height}; }
 };

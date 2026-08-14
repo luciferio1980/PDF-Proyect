@@ -6,16 +6,18 @@ PDFForge is a desktop application for viewing, analysing, and (in later
 milestones) editing PDF documents locally. It is an original product. It is not
 an official alternative to any other vendor.
 
-**Current milestone: Alpha 0.1.1 — functional viewer + text extraction + OCR engine.**
+**Current milestone: Alpha 0.2 — viewer + real text editing (PDF object rewrite).**
 
 ## Run it (Windows)
 
 Download the portable zip from the latest Alpha release:
 
-https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.1.1-alpha
+https://github.com/luciferio1980/PDF-Proyect/releases/tag/v0.2.0-alpha
 
 Unzip the whole archive and double-click `PDFForge.exe` (or `Abrir PDFForge.bat`).
 A sample PDF opens automatically. Do not run the exe from inside the zip.
+
+Double-click a line of text to edit it. File → Save writes the rewritten PDF.
 
 ## What works now
 
@@ -24,14 +26,19 @@ A sample PDF opens automatically. Do not run the exe from inside the zip.
 - Page navigation and thumbnails
 - Text extraction with coordinates, font name, size, weight, italic, color, baseline, rotation
 - Search
+- Edit native PDF text (rewrites page objects; not a white overlay)
+- Change font size and color of a text object
+- Add / delete text objects
+- Save and Save As of the edited document
+- Rotate / delete / insert pages, insert another PDF
 - Scanned-page detection (`OCR_REQUIRED` when a page has no significant text)
-- Local OCR via Tesseract (never runs automatically on open)
+- Local OCR via Tesseract (never runs automatically on open; Linux builds can stamp an invisible text layer)
 - Font classification and substitution ranking
-- Lossless save-copy (original file is never overwritten by Save copy)
+- Lossless save-copy of unmodified files (original file is never overwritten by Save copy)
 - Pixel comparison helpers (MSE / PSNR / SSIM) for quality tests
 
-Text editing of the PDF content stream is **intentionally not in this milestone**.
-The viewer and extraction pipeline must stay correct first.
+Text editing of subsetted/custom encodings may fall back to a standard PDF
+font (Helvetica) when the original object cannot encode the new characters.
 
 ## Build
 

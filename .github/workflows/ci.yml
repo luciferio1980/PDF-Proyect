@@ -68,13 +68,13 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.1-alpha
-          name: PDFForge Alpha 0.1.1
+          tag_name: v0.2.0-alpha
+          name: PDFForge Alpha 0.2
           body: |
-            Portable Windows build of PDFForge Alpha 0.1.1.
+            Portable Windows build of PDFForge Alpha 0.2.
 
-            This build ships the Visual C++ runtime next to the exe so it starts
-            on PCs that do not have the redistributable installed.
+            Double-click text to edit it. Save rewrites PDF text objects
+            (not a white overlay). Visual C++ runtime is included.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)
@@ -82,6 +82,6 @@ jobs:
             4. Double-click `Abrir PDFForge.bat` or `PDFForge.exe`
             5. If SmartScreen appears: More info → Run anyway
 
-            A sample PDF opens automatically. Text editing is not in this alpha.
+            OCR is not in the Windows portable zip (Tesseract is Linux CI only).
           files: dist/PDFForge-windows-x64.zip
           fail_on_unmatched_files: true
