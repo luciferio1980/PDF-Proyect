@@ -28,7 +28,19 @@ include(GNUInstallDirs)
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FetchPDFium.cmake")
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
-find_package(PkgConfig REQUIRED)
+
+# pkg-config is typical on Linux; Windows portable builds do not require it.
+find_package(PkgConfig QUIET)
+if(NOT PkgConfig_FOUND)
+    if(PDFFORGE_WITH_QPDF)
+        message(STATUS "pkg-config not found; disabling QPDF")
+        set(PDFFORGE_WITH_QPDF OFF)
+    endif()
+    if(PDFFORGE_WITH_TESSERACT)
+        message(STATUS "pkg-config not found; disabling Tesseract")
+        set(PDFFORGE_WITH_TESSERACT OFF)
+    endif()
+endif()
 
 if(PDFFORGE_WITH_QPDF)
     pkg_check_modules(QPDF IMPORTED_TARGET libqpdf)
@@ -144,6 +156,9 @@ if(PDFFORGE_BUILD_APP)
         OUTPUT_NAME PDFForge
         AUTOMOC ON
     )
+    if(WIN32)
+        set_target_properties(pdfforge PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
     if(MSVC)
         target_compile_options(pdfforge PRIVATE /W4 /permissive- /utf-8)
     else()
@@ -185,6 +200,16 @@ add_custom_target(pdfforge_test_pdfs ALL
     DEPENDS
         "${PDFFORGE_TEST_PDF_DIR}/TEST_01_SIMPLE_TEXT.pdf"
 )
+
+if(PDFFORGE_BUILD_APP)
+    add_dependencies(pdfforge pdfforge_test_pdfs)
+    add_custom_command(TARGET pdfforge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${PDFFORGE_TEST_PDF_DIR}"
+            "$<TARGET_FILE_DIR:pdfforge>/test_documents"
+        COMMENT "Copy sample PDFs next to PDFForge"
+    )
+endif()
 
 if(PDFFORGE_BUILD_TESTS)
     enable_testing()

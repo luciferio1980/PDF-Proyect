@@ -2,8 +2,12 @@ name: ci
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "cursor/**"]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   linux:
@@ -23,7 +27,7 @@ jobs:
             tesseract-ocr-deu tesseract-ocr-ita tesseract-ocr-por \
             libleptonica-dev python3
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=g++
       - name: Build
         run: cmake --build build
       - name: Test
@@ -36,6 +40,9 @@ jobs:
       - uses: jurplel/install-qt-action@v4
         with:
           version: "6.7.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
           archives: qtbase
       - name: Configure
         shell: cmd
@@ -46,3 +53,29 @@ jobs:
       - name: Test
         shell: cmd
         run: ctest --test-dir build --output-on-failure -C RelWithDebInfo
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          ./scripts/package_windows.ps1 -BuildDir "$pwd/build" -OutDir "$pwd/dist/PDFForge" -Config RelWithDebInfo
+          Compress-Archive -Path "$pwd/dist/PDFForge" -DestinationPath "$pwd/dist/PDFForge-windows-x64.zip" -Force
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PDFForge-windows-x64
+          path: dist/PDFForge-windows-x64.zip
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-alpha
+          name: PDFForge Alpha 0.1
+          body: |
+            Portable Windows build of PDFForge Alpha 0.1.
+
+            1. Download `PDFForge-windows-x64.zip`
+            2. Unzip
+            3. Double-click `PDFForge.exe`
+
+            A sample PDF opens automatically. Text editing is not in this alpha.
+          files: dist/PDFForge-windows-x64.zip
+          fail_on_unmatched_files: true

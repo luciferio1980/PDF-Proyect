@@ -5,6 +5,9 @@
 #include "ui/Theme.h"
 
 #include <QApplication>
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <filesystem>
 
@@ -35,6 +38,13 @@ int main(int argc, char** argv) {
     window.show();
     if (argc > 1) {
         window.openPath(QString::fromLocal8Bit(argv[1]));
+    } else {
+        const QString sample =
+            QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("test_documents/TEST_01_SIMPLE_TEXT.pdf"));
+        if (QFileInfo::exists(sample)) {
+            window.openPath(sample);
+        }
     }
     return app.exec();
 }
