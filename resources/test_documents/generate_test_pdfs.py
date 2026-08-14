@@ -335,6 +335,57 @@ def make_mixed(path: Path) -> None:
     write(path, pdf.finish())
 
 
+def make_split_runs(path: Path) -> None:
+    """Adjacent same-style Tj runs that extract as one span (Word-like)."""
+    pdf = PdfBuilder()
+    pdf.add("<< /Type /Catalog /Pages 2 0 R >>")
+    pdf.add("<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+    pdf.add(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        "/Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>"
+    )
+    pdf.stream(
+        "",
+        _content(
+            "BT",
+            "/F1 12 Tf",
+            "1 0 0 1 72 720 Tm",
+            "(3. ) Tj",
+            "(Cuantia del contrato) Tj",
+            "0 -24 Td",
+            "(Keep this sibling line) Tj",
+            "ET",
+        ),
+    )
+    pdf.add(_font("Helvetica"))
+    write(path, pdf.finish())
+
+
+def make_form_text(path: Path) -> None:
+    """Text lives inside a Form XObject, not the page content stream."""
+    pdf = PdfBuilder()
+    pdf.add("<< /Type /Catalog /Pages 2 0 R >>")
+    pdf.add("<< /Type /Pages /Count 1 /Kids [3 0 R] >>")
+    pdf.add(
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        "/Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>"
+    )
+    pdf.stream("", _content("q", "/Fm0 Do", "Q"))
+    pdf.stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 612 792] "
+        "/Resources << /Font << /F1 6 0 R >> >>",
+        _content(
+            "BT",
+            "/F1 24 Tf",
+            "1 0 0 1 72 720 Tm",
+            "(Hello FormText) Tj",
+            "ET",
+        ),
+    )
+    pdf.add(_font("Helvetica"))
+    write(path, pdf.finish())
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: generate_test_pdfs.py DEST_DIR", file=sys.stderr)
@@ -350,6 +401,8 @@ def main() -> int:
     make_multicolumn(dest / "TEST_07_MULTICOLUMN.pdf")
     make_embedded_type3(dest / "TEST_08_EMBEDDED_FONT.pdf")
     make_mixed(dest / "TEST_09_MIXED_CONTENT.pdf")
+    make_split_runs(dest / "TEST_10_SPLIT_TEXT_RUNS.pdf")
+    make_form_text(dest / "TEST_11_FORM_XOBJECT_TEXT.pdf")
     return 0
 
 

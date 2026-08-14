@@ -40,6 +40,7 @@ TEST(OpenAllFixtures) {
         "TEST_01_SIMPLE_TEXT.pdf",     "TEST_02_MULTIPLE_FONTS.pdf", "TEST_03_BOLD_ITALIC.pdf",
         "TEST_04_ROTATED_TEXT.pdf",    "TEST_05_SCANNED_DOCUMENT.pdf", "TEST_06_TABLE.pdf",
         "TEST_07_MULTICOLUMN.pdf",     "TEST_08_EMBEDDED_FONT.pdf",  "TEST_09_MIXED_CONTENT.pdf",
+        "TEST_10_SPLIT_TEXT_RUNS.pdf", "TEST_11_FORM_XOBJECT_TEXT.pdf",
     };
     for (const char* f : files) {
         auto doc = pdfforge::PdfDocument::open(runtime, pdf(f));

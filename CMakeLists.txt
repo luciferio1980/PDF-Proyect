@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(PDFForge
-    VERSION 0.2.2
+    VERSION 0.2.3
     DESCRIPTION "Independent professional PDF editor"
     LANGUAGES CXX
 )
@@ -191,6 +191,8 @@ add_custom_command(
         "${PDFFORGE_TEST_PDF_DIR}/TEST_07_MULTICOLUMN.pdf"
         "${PDFFORGE_TEST_PDF_DIR}/TEST_08_EMBEDDED_FONT.pdf"
         "${PDFFORGE_TEST_PDF_DIR}/TEST_09_MIXED_CONTENT.pdf"
+        "${PDFFORGE_TEST_PDF_DIR}/TEST_10_SPLIT_TEXT_RUNS.pdf"
+        "${PDFFORGE_TEST_PDF_DIR}/TEST_11_FORM_XOBJECT_TEXT.pdf"
     COMMAND ${CMAKE_COMMAND} -E env PYTHONUNBUFFERED=1
         ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/resources/test_documents/generate_test_pdfs.py"
@@ -202,6 +204,8 @@ add_custom_command(
 add_custom_target(pdfforge_test_pdfs ALL
     DEPENDS
         "${PDFFORGE_TEST_PDF_DIR}/TEST_01_SIMPLE_TEXT.pdf"
+        "${PDFFORGE_TEST_PDF_DIR}/TEST_10_SPLIT_TEXT_RUNS.pdf"
+        "${PDFFORGE_TEST_PDF_DIR}/TEST_11_FORM_XOBJECT_TEXT.pdf"
 )
 
 if(PDFFORGE_BUILD_APP)

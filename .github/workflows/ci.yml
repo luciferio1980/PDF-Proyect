@@ -68,14 +68,14 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.2-alpha
-          name: PDFForge Alpha 0.2.2
+          tag_name: v0.2.3-alpha
+          name: PDFForge Alpha 0.2.3
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.2.
+            Portable Windows build of PDFForge Alpha 0.2.3.
 
-            Text edits now replace the original PDF glyphs instead of
-            drawing the new string on top of the old one. Press Enter to
-            confirm, then File → Save.
+            Text edits now remove every PDF text run in the selected line
+            (Word-style split Tj operators and Form XObjects) so the new
+            string replaces the old one instead of drawing on top of it.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

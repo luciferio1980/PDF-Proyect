@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
+#include <vector>
 
 namespace pdfforge {
 namespace {
@@ -72,6 +73,30 @@ FPDF_PAGEOBJECT objectFromSpan(FPDF_PAGE page, FPDF_TEXTPAGE textPage, const Tex
         }
     }
     return nullptr;
+}
+
+void appendUnique(std::vector<FPDF_PAGEOBJECT>& out, FPDF_PAGEOBJECT obj) {
+    if (!obj) {
+        return;
+    }
+    if (std::find(out.begin(), out.end(), obj) == out.end()) {
+        out.push_back(obj);
+    }
+}
+
+std::vector<FPDF_PAGEOBJECT> objectsForSpan(FPDF_PAGE page, FPDF_TEXTPAGE textPage,
+                                            const TextSpan& span) {
+    std::vector<FPDF_PAGEOBJECT> out;
+    if (textPage && span.pdfCharStart >= 0) {
+        const int end = span.pdfCharEnd > span.pdfCharStart ? span.pdfCharEnd : span.pdfCharStart + 1;
+        for (int i = span.pdfCharStart; i < end; ++i) {
+            appendUnique(out, FPDFText_GetTextObject(textPage, i));
+        }
+    }
+    if (out.empty()) {
+        appendUnique(out, objectFromSpan(page, textPage, span));
+    }
+    return out;
 }
 
 void generateOrThrow(FPDF_PAGE page) {
@@ -176,9 +201,9 @@ void dirtyObjectTree(FPDF_PAGEOBJECT obj) {
     if (!obj) {
         return;
     }
-    // Identity transform marks the object dirty so GenerateContent rewrites
-    // its original stream instead of appending a new one on top of it.
-    FPDFPageObj_Transform(obj, 1, 0, 0, 1, 0, 0);
+    // Identity transforms are no-ops in PDFium and do not mark the object dirty.
+    // A sub-point translation forces GenerateContent to rewrite the original stream.
+    FPDFPageObj_Transform(obj, 1, 0, 0, 1, 1e-4, 0);
     if (FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_FORM) {
         return;
     }
@@ -215,28 +240,6 @@ bool formContains(FPDF_PAGEOBJECT form, FPDF_PAGEOBJECT target) {
     return false;
 }
 
-FPDF_PAGEOBJECT immediateFormParent(FPDF_PAGEOBJECT form, FPDF_PAGEOBJECT target) {
-    if (!form || !target) {
-        return nullptr;
-    }
-    const int n = FPDFFormObj_CountObjects(form);
-    for (int i = 0; i < n; ++i) {
-        FPDF_PAGEOBJECT child = FPDFFormObj_GetObject(form, static_cast<unsigned long>(i));
-        if (!child) {
-            continue;
-        }
-        if (child == target) {
-            return form;
-        }
-        if (FPDFPageObj_GetType(child) == FPDF_PAGEOBJ_FORM) {
-            if (FPDF_PAGEOBJECT found = immediateFormParent(child, target)) {
-                return found;
-            }
-        }
-    }
-    return nullptr;
-}
-
 FPDF_PAGEOBJECT findFormContaining(FPDF_PAGE page, FPDF_PAGEOBJECT target) {
     if (!page || !target) {
         return nullptr;
@@ -261,37 +264,74 @@ bool insertOwnedObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj, int at) {
     return FPDFPage_InsertObject(page, obj) != 0;
 }
 
-void dropInactiveObject(FPDF_PAGE page, FPDF_PAGEOBJECT obj) {
-    if (!obj) {
-        return;
+bool explodeFormToPage(FPDF_PAGE page, FPDF_PAGEOBJECT form) {
+    if (!page || !form) {
+        return false;
     }
-    FPDFPageObj_SetIsActive(obj, false);
-    if (FPDFPage_RemoveObject(page, obj)) {
-        FPDFPageObj_Destroy(obj);
+    FS_MATRIX matrix{1, 0, 0, 1, 0, 0};
+    FPDFPageObj_GetMatrix(form, &matrix);
+    const int childCount = FPDFFormObj_CountObjects(form);
+    std::vector<FPDF_PAGEOBJECT> children;
+    children.reserve(static_cast<std::size_t>(std::max(0, childCount)));
+    for (int i = 0; i < childCount; ++i) {
+        if (FPDF_PAGEOBJECT child = FPDFFormObj_GetObject(form, static_cast<unsigned long>(i))) {
+            children.push_back(child);
+        }
+    }
+    int at = indexOfPageObject(page, form);
+    for (FPDF_PAGEOBJECT child : children) {
+        if (!FPDFFormObj_RemoveObject(form, child)) {
+            return false;
+        }
+        FPDFPageObj_Transform(child, matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f);
+        if (!insertOwnedObject(page, child, at)) {
+            return false;
+        }
+        if (at >= 0) {
+            ++at;
+        }
+    }
+    if (!FPDFPage_RemoveObject(page, form)) {
+        return false;
+    }
+    FPDFPageObj_Destroy(form);
+    return true;
+}
+
+void promoteTargetsToPage(FPDF_PAGE page, const std::vector<FPDF_PAGEOBJECT>& targets) {
+    for (int guard = 0; guard < 24; ++guard) {
+        FPDF_PAGEOBJECT form = nullptr;
+        for (FPDF_PAGEOBJECT target : targets) {
+            if (!target || indexOfPageObject(page, target) >= 0) {
+                continue;
+            }
+            form = findFormContaining(page, target);
+            break;
+        }
+        if (!form) {
+            return;
+        }
+        if (!explodeFormToPage(page, form)) {
+            throw Error(Status::EditFailed, "could not flatten form XObject for edit");
+        }
+    }
+    for (FPDF_PAGEOBJECT target : targets) {
+        if (target && indexOfPageObject(page, target) < 0) {
+            throw Error(Status::EditFailed, "text object is nested deeper than supported");
+        }
     }
 }
 
-void eraseFromContentStream(FPDF_PAGE page, FPDF_PAGEOBJECT obj, int pageObjectIndex,
-                            FPDF_PAGEOBJECT formRoot, FPDF_PAGEOBJECT formParent) {
-    if (!obj) {
-        return;
-    }
-    // Inactive objects are omitted when PDFium rewrites a dirty stream, so the
-    // original Tj/TJ operators disappear instead of remaining under the new text.
-    FPDFPageObj_SetIsActive(obj, false);
-    dirtyAllPageObjects(page);
-    if (formRoot) {
-        dirtyObjectTree(formRoot);
-    }
-    generateOrThrow(page);
-    if (pageObjectIndex >= 0) {
-        dropInactiveObject(page, obj);
-    } else if (formParent) {
-        if (FPDFFormObj_RemoveObject(formParent, obj)) {
+void dropPageObjects(FPDF_PAGE page, const std::vector<FPDF_PAGEOBJECT>& targets) {
+    for (FPDF_PAGEOBJECT obj : targets) {
+        if (!obj) {
+            continue;
+        }
+        FPDFPageObj_SetIsActive(obj, false);
+        if (FPDFPage_RemoveObject(page, obj)) {
             FPDFPageObj_Destroy(obj);
         }
     }
-    generateOrThrow(page);
 }
 
 void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf8, float fontSize,
@@ -301,7 +341,8 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
         throw Error(Status::EditFailed, "FPDF_LoadPage failed");
     }
     FPDF_TEXTPAGE text = FPDFText_LoadPage(page);
-    FPDF_PAGEOBJECT obj = objectFromSpan(page, text, span);
+    std::vector<FPDF_PAGEOBJECT> targets = objectsForSpan(page, text, span);
+    FPDF_PAGEOBJECT first = targets.empty() ? nullptr : targets.front();
 
     double originX = static_cast<double>(span.x);
     double originY = static_cast<double>(span.baseline);
@@ -310,11 +351,11 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
     }
 
     FS_MATRIX matrix{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
-    bool hasMatrix = obj && FPDFPageObj_GetMatrix(obj, &matrix) != 0;
+    bool hasMatrix = first && FPDFPageObj_GetMatrix(first, &matrix) != 0;
     float size = fontSize > 0 ? fontSize : (span.fontSize > 0 ? span.fontSize : 12.0f);
-    if (obj) {
+    if (first) {
         float existing = size;
-        if (FPDFTextObj_GetFontSize(obj, &existing) && existing > 0 && fontSize <= 0) {
+        if (FPDFTextObj_GetFontSize(first, &existing) && existing > 0 && fontSize <= 0) {
             size = existing;
         }
     }
@@ -322,8 +363,8 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
     unsigned g = toByte(color.toRgb().c1);
     unsigned b = toByte(color.toRgb().c2);
     unsigned a = toByte(color.toRgb().alpha);
-    if (obj) {
-        FPDFPageObj_GetFillColor(obj, &r, &g, &b, &a);
+    if (first) {
+        FPDFPageObj_GetFillColor(first, &r, &g, &b, &a);
         if (color.alpha > 0) {
             const Color rgb = color.toRgb();
             r = toByte(rgb.c0);
@@ -334,20 +375,11 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
     }
 
     std::string next = utf8;
-    if (text && obj && !utf8.empty()) {
-        const std::string current = textObjectUtf8(obj, text);
+    if (text && targets.size() == 1 && !utf8.empty()) {
+        const std::string current = textObjectUtf8(first, text);
         if (!span.text.empty() && current.find(span.text) != std::string::npos &&
             current != span.text) {
             next = replaceUtf8Once(current, span.text, utf8);
-        }
-    }
-    const int oldIndex = indexOfPageObject(page, obj);
-    FPDF_PAGEOBJECT formRoot = nullptr;
-    FPDF_PAGEOBJECT formParent = nullptr;
-    if (obj && oldIndex < 0) {
-        formRoot = findFormContaining(page, obj);
-        if (formRoot) {
-            formParent = immediateFormParent(formRoot, obj);
         }
     }
     if (text) {
@@ -355,39 +387,44 @@ void PdfDocument::rewriteSpanLocked(const TextSpan& span, const std::string& utf
         text = nullptr;
     }
 
-    FPDF_PAGEOBJECT neu = nullptr;
-    if (!next.empty()) {
-        const bool sizeInMatrix =
-            hasMatrix && oldIndex >= 0 && size > 2.0f &&
-            std::fabs(std::hypot(matrix.a, matrix.b) - size) < 0.75f;
-        neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
-                                     standardFontFor(span.fontWeight, span.italic),
-                                     sizeInMatrix ? 1.0f : size);
-        if (!neu || !setObjectText(neu, next)) {
-            if (neu) {
-                FPDFPageObj_Destroy(neu);
-            }
-            FPDF_ClosePage(page);
-            throw Error(Status::EditFailed, "could not create replacement text object");
-        }
-        if (hasMatrix && oldIndex >= 0) {
-            FPDFPageObj_SetMatrix(neu, &matrix);
-        } else {
-            FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX), static_cast<float>(originY)};
-            FPDFPageObj_SetMatrix(neu, &placed);
-        }
-        FPDFPageObj_SetFillColor(neu, r, g, b, a);
-    } else if (!obj || (oldIndex < 0 && !formParent)) {
+    if (targets.empty()) {
         FPDF_ClosePage(page);
         throw Error(Status::EditFailed, "no PDF text object for span");
     }
 
+    FPDF_PAGEOBJECT neu = nullptr;
     bool inserted = false;
     try {
-        if (!(obj && (oldIndex >= 0 || formParent))) {
-            throw Error(Status::EditFailed, "could not locate text object to replace");
+        promoteTargetsToPage(page, targets);
+        generateOrThrow(page);
+        const int oldIndex = indexOfPageObject(page, targets.front());
+        if (oldIndex >= 0 && FPDFPageObj_GetMatrix(targets.front(), &matrix)) {
+            hasMatrix = true;
         }
-        eraseFromContentStream(page, obj, oldIndex, formRoot, formParent);
+
+        if (!next.empty()) {
+            const bool sizeInMatrix =
+                hasMatrix && targets.size() == 1 && size > 2.0f &&
+                std::fabs(std::hypot(matrix.a, matrix.b) - size) < 0.75f;
+            neu = FPDFPageObj_NewTextObj(static_cast<FPDF_DOCUMENT>(document_),
+                                         standardFontFor(span.fontWeight, span.italic),
+                                         sizeInMatrix ? 1.0f : size);
+            if (!neu || !setObjectText(neu, next)) {
+                throw Error(Status::EditFailed, "could not create replacement text object");
+            }
+            if (hasMatrix && targets.size() == 1) {
+                FPDFPageObj_SetMatrix(neu, &matrix);
+            } else {
+                FS_MATRIX placed{1, 0, 0, 1, static_cast<float>(originX),
+                                 static_cast<float>(originY)};
+                FPDFPageObj_SetMatrix(neu, &placed);
+            }
+            FPDFPageObj_SetFillColor(neu, r, g, b, a);
+        }
+
+        dirtyAllPageObjects(page);
+        dropPageObjects(page, targets);
+        generateOrThrow(page);
         if (neu) {
             if (!insertOwnedObject(page, neu, oldIndex)) {
                 throw Error(Status::EditFailed, "could not insert replacement text object");

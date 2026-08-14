@@ -205,3 +205,66 @@ TEST(EditDoesNotStackOriginalTextOnRepeatedReplace) {
     CHECK(!contains(savedPlain, "FIRST REPLACE"));
     CHECK(!contains(savedPlain, "Hello PDFForge"));
 }
+
+TEST(EditReplacesEveryRunInAGroupedSpan) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-split-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-split-dst");
+    const auto src = copyFixture("TEST_10_SPLIT_TEXT_RUNS.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    auto spans = doc->extractText(0);
+    CHECK(!spans.empty());
+    pdfforge::TextSpan target = spans.front();
+    for (const auto& s : spans) {
+        if (contains(s.text, "Cuantia")) {
+            target = s;
+            break;
+        }
+    }
+    CHECK(contains(target.text, "Cuantia"));
+    doc->replaceSpanText(target, "3 Contrato de mandato");
+    const auto plain = doc->extractPlainText(0);
+    CHECK(contains(plain, "3 Contrato de mandato"));
+    CHECK(!contains(plain, "Cuantia"));
+    CHECK(!contains(plain, "contrato"));
+    CHECK(contains(plain, "Keep this sibling line"));
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    const auto savedPlain = reopened->extractPlainText(0);
+    CHECK(contains(savedPlain, "3 Contrato de mandato"));
+    CHECK(!contains(savedPlain, "Cuantia"));
+    CHECK(contains(savedPlain, "Keep this sibling line"));
+    std::ifstream in(dst, std::ios::binary);
+    const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(!contains(saved, "Cuantia"));
+}
+
+TEST(EditReplacesTextInsideFormXObject) {
+    auto runtime = pdfforge::PdfiumRuntime::acquire();
+    pdfforge::SecureTempFile srcTmp("pdfforge-form-src");
+    pdfforge::SecureTempFile dstTmp("pdfforge-form-dst");
+    const auto src = copyFixture("TEST_11_FORM_XOBJECT_TEXT.pdf", srcTmp);
+    const auto dst = dstTmp.path().string() + ".pdf";
+    auto doc = pdfforge::PdfDocument::open(runtime, src);
+    auto spans = doc->extractText(0);
+    CHECK(!spans.empty());
+    pdfforge::TextSpan target = spans.front();
+    for (const auto& s : spans) {
+        if (contains(s.text, "FormText")) {
+            target = s;
+            break;
+        }
+    }
+    CHECK(contains(target.text, "FormText"));
+    doc->replaceSpanText(target, "Edited FormText");
+    CHECK(contains(doc->extractPlainText(0), "Edited FormText"));
+    CHECK(!contains(doc->extractPlainText(0), "Hello FormText"));
+    doc->save(dst);
+    auto reopened = pdfforge::PdfDocument::open(runtime, dst);
+    CHECK(contains(reopened->extractPlainText(0), "Edited FormText"));
+    CHECK(!contains(reopened->extractPlainText(0), "Hello FormText"));
+    std::ifstream in(dst, std::ios::binary);
+    const std::string saved((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    CHECK(!contains(saved, "Hello FormText"));
+}

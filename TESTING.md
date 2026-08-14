@@ -28,6 +28,8 @@ The `pdfforge_tests` binary also runs directly:
 | TEST_07_MULTICOLUMN.pdf | Two columns |
 | TEST_08_EMBEDDED_FONT.pdf | Type3 embedded glyph |
 | TEST_09_MIXED_CONTENT.pdf | Text + image |
+| TEST_10_SPLIT_TEXT_RUNS.pdf | Adjacent Tj runs that extract as one span |
+| TEST_11_FORM_XOBJECT_TEXT.pdf | Text inside a Form XObject |
 
 ## Coverage in Alpha 0.1
 
