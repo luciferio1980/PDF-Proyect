@@ -72,6 +72,8 @@ public:
     void addText(int pageIndex, PointF pagePoint, const std::string& utf8, float fontSize,
                  const Color& color);
     void addImage(int pageIndex, RectF pageRect, const Bitmap& bitmap);
+    void setImageRect(const ImageObject& image, RectF pageRect);
+    void deleteImage(const ImageObject& image);
 
     void setPageRotation(int pageIndex, int quarterTurns);
     void deletePage(int pageIndex);

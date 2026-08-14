@@ -294,8 +294,46 @@ TEST(AddImageStampSurvivesSave) {
         }
     }
     doc->addImage(0, pdfforge::RectF{72.0f, 80.0f, 96.0f, 36.0f}, stamp);
-    CHECK(doc->extractImages(0).size() == before + 1);
+    auto images = doc->extractImages(0);
+    CHECK(images.size() == before + 1);
+    pdfforge::ImageObject found{};
+    bool hasSign = false;
+    for (const auto& img : images) {
+        if (img.isSignature) {
+            found = img;
+            hasSign = true;
+        }
+    }
+    CHECK(hasSign);
+    CHECK(found.bounds.width > 90.0f);
+    doc->setImageRect(found, pdfforge::RectF{70.0f, 78.0f, 140.0f, 52.5f});
+    images = doc->extractImages(0);
+    hasSign = false;
+    for (const auto& img : images) {
+        if (img.isSignature) {
+            found = img;
+            hasSign = true;
+        }
+    }
+    CHECK(hasSign);
+    CHECK(found.bounds.width > 130.0f);
     doc->save(dst);
     auto reopened = pdfforge::PdfDocument::open(runtime, dst);
-    CHECK(reopened->extractImages(0).size() == before + 1);
+    images = reopened->extractImages(0);
+    CHECK(images.size() == before + 1);
+    hasSign = false;
+    for (const auto& img : images) {
+        if (img.isSignature) {
+            found = img;
+            hasSign = true;
+        }
+    }
+    CHECK(hasSign);
+    reopened->deleteImage(found);
+    CHECK(reopened->extractImages(0).size() == before);
+    pdfforge::SecureTempFile goneTmp("pdfforge-stamp-gone");
+    const auto gone = goneTmp.path().string() + ".pdf";
+    reopened->save(gone);
+    auto afterDelete = pdfforge::PdfDocument::open(runtime, gone);
+    CHECK(afterDelete->extractImages(0).size() == before);
 }

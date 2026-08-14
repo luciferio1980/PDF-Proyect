@@ -1,4 +1,4 @@
-PDFForge Alpha 0.2.4
+PDFForge Alpha 0.2.5
 Independent professional PDF editor
 
 Como usarlo
@@ -23,8 +23,14 @@ Editar PDF
 
 Firmar PDF
 ----------
-- Subir imagen (PNG/JPG) o Dibujar firma con el raton.
-- Clic en la pagina para colocarla. Ajusta el ancho en puntos.
+- Subir imagen, dibujar, o elegir una firma guardada (maximo 8).
+- Ajusta el tamano (puntos) antes de colocarla, o despues con las esquinas.
+- Clic en la pagina para colocar UNA firma. Para firmar otra vez:
+  Inicio > Firmar PDF.
+- Clic en la firma: recuadro de seleccion. Borrar firma o tecla Supr.
+  Clic fuera del recuadro: se deselecciona y ya no se puede borrar
+  hasta que vuelvas a picarla.
+- Guardar firma / Eliminar firma guardada en el panel derecho.
 - Save escribe la firma como objeto de imagen en el PDF.
 
 Paginas

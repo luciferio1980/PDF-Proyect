@@ -24,7 +24,7 @@ HomeView::HomeView(QWidget* parent) : QWidget(parent) {
     subtitle->setObjectName(QStringLiteral("homeSubtitle"));
     subtitle->setAlignment(Qt::AlignHCenter);
 
-    auto* hint = new QLabel(tr("Elige una herramienta. Luego abre el PDF con el que quieres trabajar."),
+    auto* hint = new QLabel(tr("Elige una herramienta. En Firmar PDF solo se coloca una firma por visita."),
                             this);
     hint->setObjectName(QStringLiteral("homeHint"));
     hint->setAlignment(Qt::AlignHCenter);
@@ -35,7 +35,7 @@ HomeView::HomeView(QWidget* parent) : QWidget(parent) {
     editBtn->setCursor(Qt::PointingHandCursor);
     editBtn->setMinimumHeight(110);
 
-    auto* signBtn = new QPushButton(tr("Firmar PDF\nSube una imagen o dibuja tu firma"), this);
+    auto* signBtn = new QPushButton(tr("Firmar PDF\nImagen o dibujo, tamaño, firmas guardadas"), this);
     signBtn->setObjectName(QStringLiteral("homeCard"));
     signBtn->setCursor(Qt::PointingHandCursor);
     signBtn->setMinimumHeight(110);

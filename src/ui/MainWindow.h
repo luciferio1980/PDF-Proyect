@@ -28,6 +28,7 @@ class ThumbnailPane;
 class SearchPanel;
 class InspectorPanel;
 class HomeView;
+class SignatureLibrary;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -67,6 +68,12 @@ private slots:
     void loadSignatureImage();
     void drawSignature();
     void placeSignature(const pdfforge::PointF& pagePoint);
+    void useSavedSignature(const QImage& image);
+    void saveCurrentSignature();
+    void deleteSelectedSignature();
+    void onSignatureSelected(const pdfforge::ImageObject& image);
+    void onSignatureCleared();
+    void onSignatureResized(const pdfforge::ImageObject& image, const pdfforge::RectF& pageRect);
 
 private:
     enum class Workspace { Home, Edit, Sign };
@@ -94,16 +101,21 @@ private:
     InspectorPanel* inspector_ = nullptr;
     QDockWidget* pagesDock_ = nullptr;
     QDockWidget* inspectorDock_ = nullptr;
+    QDockWidget* firmasDock_ = nullptr;
     QToolBar* navBar_ = nullptr;
     QToolBar* editBar_ = nullptr;
     QToolBar* signBar_ = nullptr;
+    SignatureLibrary* library_ = nullptr;
     QSpinBox* pageSpin_ = nullptr;
     QLabel* pageTotal_ = nullptr;
     QLabel* classLabel_ = nullptr;
     QDoubleSpinBox* stampWidthSpin_ = nullptr;
     QAction* addTextAction_ = nullptr;
     QAction* undoAction_ = nullptr;
+    QAction* deleteStampAction_ = nullptr;
     QImage stampImage_;
+    bool placedThisVisit_ = false;
+    bool ignoreStampWidth_ = false;
     std::vector<pdfforge::SearchHit> hits_;
 };
 

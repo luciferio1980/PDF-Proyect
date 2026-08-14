@@ -10,6 +10,7 @@
 #include "ui/InspectorPanel.h"
 #include "ui/PdfCanvas.h"
 #include "ui/SearchPanel.h"
+#include "ui/SignatureLibrary.h"
 #include "ui/SignaturePad.h"
 #include "ui/ThumbnailPane.h"
 
@@ -35,6 +36,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <optional>
 
 namespace pdfforge::ui {
 namespace {
@@ -130,6 +132,12 @@ void MainWindow::buildUi() {
     inspectorDock_->setWidget(inspector_);
     addDockWidget(Qt::RightDockWidgetArea, inspectorDock_);
 
+    library_ = new SignatureLibrary(this);
+    firmasDock_ = new QDockWidget(tr("Firmas"), this);
+    firmasDock_->setObjectName(QStringLiteral("firmasDock"));
+    firmasDock_->setWidget(library_);
+    addDockWidget(Qt::RightDockWidgetArea, firmasDock_);
+
     auto* nav = addToolBar(tr("Document"));
     nav->setObjectName(QStringLiteral("navBar"));
     nav->setMovable(false);
@@ -153,13 +161,17 @@ void MainWindow::buildUi() {
     signBar_->setMovable(false);
     signBar_->addAction(tr("Subir imagen"), this, &MainWindow::loadSignatureImage);
     signBar_->addAction(tr("Dibujar firma"), this, &MainWindow::drawSignature);
+    signBar_->addAction(tr("Guardar firma"), this, &MainWindow::saveCurrentSignature);
     signBar_->addSeparator();
-    signBar_->addWidget(new QLabel(tr("Ancho"), signBar_));
+    signBar_->addWidget(new QLabel(tr("Tamaño"), signBar_));
     stampWidthSpin_ = new QDoubleSpinBox(signBar_);
-    stampWidthSpin_->setRange(36.0, 360.0);
+    stampWidthSpin_->setRange(24.0, 480.0);
     stampWidthSpin_->setValue(144.0);
+    stampWidthSpin_->setSingleStep(4.0);
     stampWidthSpin_->setSuffix(QStringLiteral(" pt"));
     signBar_->addWidget(stampWidthSpin_);
+    deleteStampAction_ = signBar_->addAction(tr("Borrar firma"), this, &MainWindow::deleteSelectedSignature);
+    deleteStampAction_->setEnabled(false);
 
     editBar_ = addToolBar(tr("Edit tools"));
     editBar_->setMovable(false);
@@ -191,6 +203,11 @@ void MainWindow::buildUi() {
     connect(canvas_, &PdfCanvas::spanEditCommitted, this, &MainWindow::commitInlineEdit);
     connect(canvas_, &PdfCanvas::emptyPageClicked, this, &MainWindow::addTextAt);
     connect(canvas_, &PdfCanvas::stampPlaced, this, &MainWindow::placeSignature);
+    connect(canvas_, &PdfCanvas::signatureSelected, this, &MainWindow::onSignatureSelected);
+    connect(canvas_, &PdfCanvas::signatureSelectionCleared, this, &MainWindow::onSignatureCleared);
+    connect(canvas_, &PdfCanvas::signatureResizeCommitted, this, &MainWindow::onSignatureResized);
+    connect(canvas_, &PdfCanvas::signatureDeleteRequested, this, &MainWindow::deleteSelectedSignature);
+    connect(library_, &SignatureLibrary::signatureChosen, this, &MainWindow::useSavedSignature);
     connect(addTextAction_, &QAction::toggled, this, &MainWindow::toggleAddText);
     connect(inspector_, &InspectorPanel::applyRequested, this, &MainWindow::applySpanEdits);
     connect(inspector_, &InspectorPanel::deleteRequested, this, &MainWindow::deleteSelectedSpan);
@@ -198,7 +215,23 @@ void MainWindow::buildUi() {
     connect(home_, &HomeView::editPdfRequested, this, &MainWindow::startEditPdf);
     connect(home_, &HomeView::signPdfRequested, this, &MainWindow::startSignPdf);
     connect(stampWidthSpin_, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
-            [this](double) { applyStampPreview(); });
+            [this](double value) {
+                if (ignoreStampWidth_) {
+                    return;
+                }
+                if (auto selected = canvas_->selectedSignature()) {
+                    const float width = static_cast<float>(value);
+                    const float aspect =
+                        selected->bounds.height / std::max(1.0f, selected->bounds.width);
+                    const pdfforge::RectF next{
+                        selected->bounds.x + (selected->bounds.width - width) * 0.5f,
+                        selected->bounds.y + (selected->bounds.height - width * aspect) * 0.5f, width,
+                        width * aspect};
+                    onSignatureResized(*selected, next);
+                    return;
+                }
+                applyStampPreview();
+            });
 }
 
 void MainWindow::buildMenus() {
@@ -329,12 +362,13 @@ void MainWindow::openPathForEdit(const QString& path) {
     try {
         pdfforge::OpenOptions options;
         document_ = pdfforge::PdfDocument::open(runtime_, toFsPath(path), options);
-        stampImage_ = {};
         canvas_->setAddTextMode(false);
         canvas_->setPlaceStampMode(false);
         if (addTextAction_) {
             addTextAction_->setChecked(false);
         }
+        placedThisVisit_ = false;
+        stampImage_ = {};
         canvas_->setDocument(document_.get());
         thumbs_->setDocument(document_.get());
         pageSpin_->blockSignals(true);
@@ -362,6 +396,8 @@ void MainWindow::openPathForSign(const QString& path) {
         if (addTextAction_) {
             addTextAction_->setChecked(false);
         }
+        placedThisVisit_ = false;
+        stampImage_ = {};
         canvas_->setDocument(document_.get());
         thumbs_->setDocument(document_.get());
         pageSpin_->blockSignals(true);
@@ -736,13 +772,18 @@ void MainWindow::setWorkspace(Workspace workspace) {
     if (inspectorDock_) {
         inspectorDock_->setVisible(edit);
     }
+    if (firmasDock_) {
+        firmasDock_->setVisible(sign);
+    }
     if (search_) {
         search_->setVisible(edit);
     }
     if (canvas_) {
-        canvas_->setPlaceStampMode(sign && !stampImage_.isNull());
+        canvas_->setSignWorkspace(sign);
+        canvas_->setPlaceStampMode(sign && !placedThisVisit_ && !stampImage_.isNull());
         if (!sign) {
             canvas_->setPlaceStampMode(false);
+            canvas_->clearSignatureSelection();
         }
         if (!edit && addTextAction_) {
             addTextAction_->setChecked(false);
@@ -758,10 +799,12 @@ void MainWindow::showHome() {
     }
     document_.reset();
     stampImage_ = {};
+    placedThisVisit_ = false;
     if (canvas_) {
         canvas_->setDocument(nullptr);
         canvas_->setStampPreview({}, 144.0f);
         canvas_->setPlaceStampMode(false);
+        canvas_->setSignWorkspace(false);
     }
     if (thumbs_) {
         thumbs_->setDocument(nullptr);
@@ -790,7 +833,8 @@ void MainWindow::startSignPdf() {
     if (!path.isEmpty()) {
         openPathForSign(path);
         statusBar()->showMessage(
-            tr("Sube una imagen o dibuja la firma, luego haz clic en la página"), 6000);
+            tr("Elige una firma guardada, súbela o dibújala. Coloca solo una; luego Inicio para firmar otra vez."),
+            7000);
     }
 }
 
@@ -799,7 +843,8 @@ void MainWindow::applyStampPreview() {
         return;
     }
     canvas_->setStampPreview(stampImage_, static_cast<float>(stampWidthSpin_->value()));
-    canvas_->setPlaceStampMode(workspace_ == Workspace::Sign && !stampImage_.isNull());
+    canvas_->setPlaceStampMode(workspace_ == Workspace::Sign && !placedThisVisit_ &&
+                               !stampImage_.isNull());
 }
 
 void MainWindow::loadSignatureImage() {
@@ -818,9 +863,13 @@ void MainWindow::loadSignatureImage() {
     if (QImage cropped = cropToInk(prepared); !cropped.isNull()) {
         prepared = cropped;
     }
-    stampImage_ = prepared;
-    applyStampPreview();
-    statusBar()->showMessage(tr("Haz clic en la página para colocar la firma"), 5000);
+    useSavedSignature(prepared);
+    if (library_ && !library_->saveSignature(stampImage_)) {
+        if (library_->count() >= SignatureLibrary::kMaxSaved) {
+            statusBar()->showMessage(
+                tr("No se guardó: elimina una firma de la lista para guardar esta."), 6000);
+        }
+    }
 }
 
 void MainWindow::drawSignature() {
@@ -833,13 +882,45 @@ void MainWindow::drawSignature() {
         QMessageBox::information(this, tr("PDFForge"), tr("No hay trazo en la firma."));
         return;
     }
-    stampImage_ = drawn;
+    useSavedSignature(drawn);
+    if (library_ && !library_->saveSignature(stampImage_)) {
+        if (library_->count() >= SignatureLibrary::kMaxSaved) {
+            statusBar()->showMessage(
+                tr("No se guardó: elimina una firma de la lista para guardar esta."), 6000);
+        }
+    }
+}
+
+void MainWindow::useSavedSignature(const QImage& image) {
+    if (image.isNull()) {
+        return;
+    }
+    stampImage_ = image.convertToFormat(QImage::Format_ARGB32);
+    if (placedThisVisit_) {
+        statusBar()->showMessage(
+            tr("Para colocar otra firma, pulsa Inicio y elige Firmar PDF."), 6000);
+        return;
+    }
     applyStampPreview();
-    statusBar()->showMessage(tr("Haz clic en la página para colocar la firma"), 5000);
+    statusBar()->showMessage(tr("Haz clic en la página para colocar la firma. Puedes cambiar el tamaño."), 5000);
+}
+
+void MainWindow::saveCurrentSignature() {
+    if (stampImage_.isNull() || !library_) {
+        return;
+    }
+    if (!library_->saveSignature(stampImage_)) {
+        QMessageBox::information(
+            this, tr("PDFForge"),
+            tr("Ya hay %1 firmas guardadas. Elimina una para guardar otra.")
+                .arg(SignatureLibrary::kMaxSaved));
+        return;
+    }
+    statusBar()->showMessage(tr("Firma guardada"), 3000);
 }
 
 void MainWindow::placeSignature(const pdfforge::PointF& pagePoint) {
-    if (!document_ || stampImage_.isNull() || !stampWidthSpin_) {
+    if (!document_ || stampImage_.isNull() || !stampWidthSpin_ || placedThisVisit_) {
         return;
     }
     const pdfforge::Bitmap bitmap = qImageToBitmap(stampImage_);
@@ -853,9 +934,68 @@ void MainWindow::placeSignature(const pdfforge::PointF& pagePoint) {
                                height};
     try {
         document_->addImage(canvas_->pageIndex(), rect, bitmap);
+        placedThisVisit_ = true;
+        canvas_->setPlaceStampMode(false);
+        canvas_->setStampPreview({}, static_cast<float>(stampWidthSpin_->value()));
         refreshAfterMutation(false);
         thumbs_->refreshPage(canvas_->pageIndex());
-        statusBar()->showMessage(tr("Firma colocada — Save para escribir el archivo"), 5000);
+        canvas_->selectSignatureAt(pagePoint);
+        statusBar()->showMessage(
+            tr("Firma colocada. Cambia el tamaño o Borrar. Un clic fuera quita la selección."), 7000);
+    } catch (const pdfforge::Error& ex) {
+        showError(ex);
+    }
+}
+
+void MainWindow::onSignatureSelected(const pdfforge::ImageObject& image) {
+    if (deleteStampAction_) {
+        deleteStampAction_->setEnabled(true);
+    }
+    if (!stampWidthSpin_) {
+        return;
+    }
+    ignoreStampWidth_ = true;
+    stampWidthSpin_->setValue(static_cast<double>(std::clamp(image.bounds.width, 24.0f, 480.0f)));
+    ignoreStampWidth_ = false;
+}
+
+void MainWindow::onSignatureCleared() {
+    if (deleteStampAction_) {
+        deleteStampAction_->setEnabled(false);
+    }
+}
+
+void MainWindow::onSignatureResized(const pdfforge::ImageObject& image, const pdfforge::RectF& pageRect) {
+    if (!document_) {
+        return;
+    }
+    try {
+        document_->setImageRect(image, pageRect);
+        refreshAfterMutation(false);
+        thumbs_->refreshPage(canvas_->pageIndex());
+        canvas_->selectSignatureAt(pdfforge::PointF{pageRect.x + pageRect.width * 0.5f,
+                                                    pageRect.y + pageRect.height * 0.5f});
+        if (stampWidthSpin_) {
+            ignoreStampWidth_ = true;
+            stampWidthSpin_->setValue(static_cast<double>(pageRect.width));
+            ignoreStampWidth_ = false;
+        }
+    } catch (const pdfforge::Error& ex) {
+        showError(ex);
+    }
+}
+
+void MainWindow::deleteSelectedSignature() {
+    auto selected = canvas_ ? canvas_->selectedSignature() : std::nullopt;
+    if (!document_ || !selected) {
+        return;
+    }
+    try {
+        document_->deleteImage(*selected);
+        canvas_->clearSignatureSelection();
+        refreshAfterMutation(false);
+        thumbs_->refreshPage(canvas_->pageIndex());
+        statusBar()->showMessage(tr("Firma eliminada del documento"), 4000);
     } catch (const pdfforge::Error& ex) {
         showError(ex);
     }

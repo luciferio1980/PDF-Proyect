@@ -111,6 +111,38 @@ unsigned toByte(float c) {
     return static_cast<unsigned>(std::clamp(v, 0, 255));
 }
 
+constexpr const char kSignMark[] = "PDFForgeSign";
+
+FPDF_PAGEOBJECT findImageObject(FPDF_PAGE page, const ImageObject& image) {
+    const int count = FPDFPage_CountObjects(page);
+    if (image.pdfObjectIndex >= 0 && image.pdfObjectIndex < count) {
+        FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, image.pdfObjectIndex);
+        if (obj && FPDFPageObj_GetType(obj) == FPDF_PAGEOBJ_IMAGE) {
+            return obj;
+        }
+    }
+    FPDF_PAGEOBJECT best = nullptr;
+    float bestDist = 1.0e12f;
+    for (int i = 0; i < count; ++i) {
+        FPDF_PAGEOBJECT obj = FPDFPage_GetObject(page, i);
+        if (!obj || FPDFPageObj_GetType(obj) != FPDF_PAGEOBJ_IMAGE) {
+            continue;
+        }
+        float left = 0, bottom = 0, right = 0, top = 0;
+        if (!FPDFPageObj_GetBounds(obj, &left, &bottom, &right, &top)) {
+            continue;
+        }
+        const float dx = left - image.bounds.x;
+        const float dy = bottom - image.bounds.y;
+        const float dist = dx * dx + dy * dy;
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = obj;
+        }
+    }
+    return best;
+}
+
 }  // namespace
 
 std::vector<std::uint8_t> PdfDocument::saveToMemoryLocked() const {
@@ -599,6 +631,52 @@ void PdfDocument::addImage(int pageIndex, RectF pageRect, const Bitmap& bitmap) 
         FPDF_ClosePage(page);
         throw Error(Status::EditFailed, "could not insert image stamp");
     }
+    (void)FPDFPageObj_AddMark(obj, kSignMark);
+    generateOrThrow(page);
+    FPDF_ClosePage(page);
+    bakeLocked();
+}
+
+void PdfDocument::setImageRect(const ImageObject& image, RectF pageRect) {
+    if (image.pageIndex < 0 || image.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "setImageRect");
+    }
+    if (pageRect.width < 1.0f || pageRect.height < 1.0f) {
+        throw Error(Status::InvalidArgument, "image stamp rectangle");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), image.pageIndex);
+    if (!page) {
+        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
+    }
+    FPDF_PAGEOBJECT obj = findImageObject(page, image);
+    if (!obj || FPDFImageObj_SetMatrix(obj, pageRect.width, 0, 0, pageRect.height, pageRect.x,
+                                       pageRect.y) == 0) {
+        FPDF_ClosePage(page);
+        throw Error(Status::EditFailed, "could not resize image stamp");
+    }
+    generateOrThrow(page);
+    FPDF_ClosePage(page);
+    bakeLocked();
+}
+
+void PdfDocument::deleteImage(const ImageObject& image) {
+    if (image.pageIndex < 0 || image.pageIndex >= pageCount_) {
+        throw Error(Status::PageOutOfRange, "deleteImage");
+    }
+    auto api = runtime_->lock();
+    markDirtyLocked();
+    FPDF_PAGE page = FPDF_LoadPage(static_cast<FPDF_DOCUMENT>(document_), image.pageIndex);
+    if (!page) {
+        throw Error(Status::EditFailed, "FPDF_LoadPage failed");
+    }
+    FPDF_PAGEOBJECT obj = findImageObject(page, image);
+    if (!obj || !FPDFPage_RemoveObject(page, obj)) {
+        FPDF_ClosePage(page);
+        throw Error(Status::EditFailed, "could not remove image stamp");
+    }
+    FPDFPageObj_Destroy(obj);
     generateOrThrow(page);
     FPDF_ClosePage(page);
     bakeLocked();

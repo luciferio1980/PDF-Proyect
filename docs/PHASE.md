@@ -13,6 +13,8 @@ Completed:
 - Edits collect every text run in the selected span (split Tj / Form XObjects) before rewriting
 - Home menu: Edit PDF or Sign PDF
 - Visual signature stamp (uploaded image or drawn)
+- One signature per visit, selectable size, delete while selected
+- Saved signature library (up to 8)
 - Inspector: text, size, color
 - Add / delete text objects
 - Save / Save As of the edited in-memory document

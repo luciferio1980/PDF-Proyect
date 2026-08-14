@@ -42,6 +42,7 @@ struct ImageObject {
     int pdfObjectIndex = -1;
     float widthPx = 0;
     float heightPx = 0;
+    bool isSignature = false;
 };
 
 struct PathObject {

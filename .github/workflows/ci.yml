@@ -68,14 +68,15 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.4-alpha
-          name: PDFForge Alpha 0.2.4
+          tag_name: v0.2.5-alpha
+          name: PDFForge Alpha 0.2.5
           body: |
-            Portable Windows build of PDFForge Alpha 0.2.4.
+            Portable Windows build of PDFForge Alpha 0.2.5.
 
-            The app now starts on a home menu: Edit PDF or Sign PDF.
-            Signatures can be an uploaded image or drawn with the mouse,
-            then placed on the page with a click.
+            Sign PDF now places one signature per visit. Change its size
+            with the Tamaño control or the corner handles. Click the stamp
+            to select it (box + delete); click elsewhere to deselect.
+            Saved signatures (up to 8) can be reused or deleted from the list.
 
             1. Download `PDFForge-windows-x64.zip`
             2. Unzip the whole archive (do not run the exe from inside the zip)

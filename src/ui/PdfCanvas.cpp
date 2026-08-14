@@ -1,5 +1,6 @@
 #include "ui/PdfCanvas.h"
 
+#include "core/Error.h"
 #include "pdf/PdfDocument.h"
 #include "ui/Theme.h"
 
@@ -12,6 +13,7 @@
 #include <QPaintEvent>
 #include <QPen>
 #include <QPoint>
+#include <QRectF>
 #include <QResizeEvent>
 #include <QTimer>
 #include <QWheelEvent>
@@ -53,15 +55,20 @@ void PdfCanvas::setDocument(pdfforge::PdfDocument* document) {
     pageIndex_ = 0;
     hoverSpan_ = -1;
     selectedSpan_ = -1;
+    selectedSignature_ = -1;
+    resizingStamp_ = false;
     hits_.clear();
     activeHit_ = -1;
+    signatures_.clear();
     if (document_) {
         loadSpans();
+        loadSignatures();
         requestRender();
     } else {
         spans_.clear();
         image_ = {};
         emit selectionCleared();
+        emit signatureSelectionCleared();
         update();
     }
 }
@@ -74,8 +81,12 @@ void PdfCanvas::setPage(int pageIndex) {
     pageIndex_ = pageIndex;
     hoverSpan_ = -1;
     selectedSpan_ = -1;
+    selectedSignature_ = -1;
+    resizingStamp_ = false;
     emit selectionCleared();
+    emit signatureSelectionCleared();
     loadSpans();
+    loadSignatures();
     requestRender();
 }
 
@@ -99,14 +110,29 @@ void PdfCanvas::setSearchHits(const std::vector<pdfforge::SearchHit>& hits, int 
 
 void PdfCanvas::reload() {
     cancelInlineEdit();
-    const int keep = selectedSpan_;
+    const int keepSpan = selectedSpan_;
+    const int keepSignIndex = selectedSignature_ >= 0 ? signatures_[static_cast<std::size_t>(selectedSignature_)].pdfObjectIndex : -1;
     loadSpans();
-    if (keep >= 0 && keep < static_cast<int>(spans_.size())) {
-        selectedSpan_ = keep;
-        emit spanSelected(spans_[static_cast<std::size_t>(keep)]);
+    loadSignatures();
+    if (keepSpan >= 0 && keepSpan < static_cast<int>(spans_.size())) {
+        selectedSpan_ = keepSpan;
+        emit spanSelected(spans_[static_cast<std::size_t>(keepSpan)]);
     } else {
         selectedSpan_ = -1;
         emit selectionCleared();
+    }
+    selectedSignature_ = -1;
+    if (keepSignIndex >= 0) {
+        for (int i = 0; i < static_cast<int>(signatures_.size()); ++i) {
+            if (signatures_[static_cast<std::size_t>(i)].pdfObjectIndex == keepSignIndex) {
+                selectedSignature_ = i;
+                emit signatureSelected(signatures_[static_cast<std::size_t>(i)]);
+                break;
+            }
+        }
+    }
+    if (selectedSignature_ < 0) {
+        emit signatureSelectionCleared();
     }
     requestRender();
 }
@@ -126,8 +152,20 @@ void PdfCanvas::setPlaceStampMode(bool enabled) {
         cancelInlineEdit();
         selectedSpan_ = -1;
         hoverSpan_ = -1;
+        clearSignatureSelection();
     }
     setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
+    update();
+}
+
+void PdfCanvas::setSignWorkspace(bool enabled) {
+    signWorkspace_ = enabled;
+    if (!enabled) {
+        clearSignatureSelection();
+        signatures_.clear();
+    } else {
+        loadSignatures();
+    }
     update();
 }
 
@@ -135,6 +173,61 @@ void PdfCanvas::setStampPreview(const QImage& image, float widthPt) {
     stampPreview_ = image;
     stampWidthPt_ = std::max(8.0f, widthPt);
     update();
+}
+
+void PdfCanvas::clearSignatureSelection() {
+    resizingStamp_ = false;
+    activeHandle_ = StampHandle::None;
+    if (selectedSignature_ >= 0) {
+        selectedSignature_ = -1;
+        emit signatureSelectionCleared();
+        update();
+    }
+}
+
+void PdfCanvas::selectSignatureAt(const pdfforge::PointF& pagePoint) {
+    loadSignatures();
+    int hit = -1;
+    for (int i = static_cast<int>(signatures_.size()) - 1; i >= 0; --i) {
+        if (signatures_[static_cast<std::size_t>(i)].bounds.contains(pagePoint.x, pagePoint.y)) {
+            hit = i;
+            break;
+        }
+    }
+    if (hit < 0 && !signatures_.empty()) {
+        hit = static_cast<int>(signatures_.size()) - 1;
+    }
+    selectedSignature_ = hit;
+    resizingStamp_ = false;
+    if (hit >= 0) {
+        emit signatureSelected(signatures_[static_cast<std::size_t>(hit)]);
+    } else {
+        emit signatureSelectionCleared();
+    }
+    update();
+}
+
+std::optional<pdfforge::ImageObject> PdfCanvas::selectedSignature() const {
+    if (selectedSignature_ < 0 || selectedSignature_ >= static_cast<int>(signatures_.size())) {
+        return std::nullopt;
+    }
+    return signatures_[static_cast<std::size_t>(selectedSignature_)];
+}
+
+void PdfCanvas::loadSignatures() {
+    signatures_.clear();
+    if (!document_ || !signWorkspace_) {
+        return;
+    }
+    try {
+        for (const auto& image : document_->extractImages(pageIndex_)) {
+            if (image.isSignature) {
+                signatures_.push_back(image);
+            }
+        }
+    } catch (const pdfforge::Error&) {
+        signatures_.clear();
+    }
 }
 
 void PdfCanvas::clearSelection() {
@@ -235,6 +328,102 @@ int PdfCanvas::hitSpanAt(const QPoint& widgetPos) const {
         }
     }
     return -1;
+}
+
+int PdfCanvas::hitSignatureAt(const QPoint& widgetPos) const {
+    pdfforge::PointF page;
+    if (!widgetToPage(widgetPos, page)) {
+        return -1;
+    }
+    for (int i = static_cast<int>(signatures_.size()) - 1; i >= 0; --i) {
+        if (signatures_[static_cast<std::size_t>(i)].bounds.contains(page.x, page.y)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+QRectF PdfCanvas::signatureWidgetRect(const pdfforge::RectF& bounds) const {
+    const QPolygonF poly = spanPolygon(bounds);
+    if (poly.isEmpty()) {
+        return {};
+    }
+    return poly.boundingRect();
+}
+
+PdfCanvas::StampHandle PdfCanvas::hitStampHandle(const QPoint& widgetPos) const {
+    if (selectedSignature_ < 0 || selectedSignature_ >= static_cast<int>(signatures_.size())) {
+        return StampHandle::None;
+    }
+    const QRectF box = signatureWidgetRect(signatures_[static_cast<std::size_t>(selectedSignature_)].bounds);
+    if (box.isEmpty()) {
+        return StampHandle::None;
+    }
+    constexpr qreal k = 10.0;
+    const QRectF nw(box.left() - k * 0.5, box.top() - k * 0.5, k, k);
+    const QRectF ne(box.right() - k * 0.5, box.top() - k * 0.5, k, k);
+    const QRectF sw(box.left() - k * 0.5, box.bottom() - k * 0.5, k, k);
+    const QRectF se(box.right() - k * 0.5, box.bottom() - k * 0.5, k, k);
+    if (se.contains(widgetPos)) {
+        return StampHandle::SE;
+    }
+    if (nw.contains(widgetPos)) {
+        return StampHandle::NW;
+    }
+    if (ne.contains(widgetPos)) {
+        return StampHandle::NE;
+    }
+    if (sw.contains(widgetPos)) {
+        return StampHandle::SW;
+    }
+    return StampHandle::None;
+}
+
+pdfforge::RectF PdfCanvas::resizedSignatureRect(StampHandle handle, const pdfforge::PointF& page) const {
+    if (selectedSignature_ < 0 || selectedSignature_ >= static_cast<int>(signatures_.size())) {
+        return {};
+    }
+    const pdfforge::RectF r = signatures_[static_cast<std::size_t>(selectedSignature_)].bounds;
+    const float aspect = r.height / std::max(1.0f, r.width);
+    const float right = r.x + r.width;
+    const float top = r.y + r.height;
+    float width = r.width;
+    float height = r.height;
+    float x = r.x;
+    float y = r.y;
+    switch (handle) {
+        case StampHandle::SE:
+            width = std::max(24.0f, page.x - r.x);
+            height = width * aspect;
+            break;
+        case StampHandle::NE:
+            width = std::max(24.0f, page.x - r.x);
+            height = width * aspect;
+            y = top - height;
+            break;
+        case StampHandle::SW:
+            width = std::max(24.0f, right - page.x);
+            height = width * aspect;
+            x = right - width;
+            break;
+        case StampHandle::NW:
+            width = std::max(24.0f, right - page.x);
+            height = width * aspect;
+            x = right - width;
+            y = top - height;
+            break;
+        case StampHandle::None:
+            break;
+    }
+    width = std::clamp(width, 24.0f, 480.0f);
+    height = width * aspect;
+    if (handle == StampHandle::NE || handle == StampHandle::NW) {
+        y = top - height;
+    }
+    if (handle == StampHandle::SW || handle == StampHandle::NW) {
+        x = right - width;
+    }
+    return pdfforge::RectF{x, y, width, height};
 }
 
 QPolygonF PdfCanvas::spanPolygon(const pdfforge::RectF& r) const {
@@ -354,6 +543,25 @@ void PdfCanvas::paintEvent(QPaintEvent*) {
         }
     }
 
+    if (signWorkspace_ && selectedSignature_ >= 0 &&
+        selectedSignature_ < static_cast<int>(signatures_.size()) && !placeStampMode_) {
+        const pdfforge::RectF bounds =
+            resizingStamp_ ? liveStampRect_ : signatures_[static_cast<std::size_t>(selectedSignature_)].bounds;
+        const QRectF box = signatureWidgetRect(bounds);
+        if (!box.isEmpty()) {
+            p.setBrush(Qt::NoBrush);
+            p.setPen(QPen(theme().copper, 2));
+            p.drawRect(box);
+            constexpr qreal k = 8.0;
+            p.setBrush(theme().copper);
+            p.setPen(Qt::NoPen);
+            const QPointF corners[4] = {box.topLeft(), box.topRight(), box.bottomLeft(), box.bottomRight()};
+            for (const auto& c : corners) {
+                p.drawRect(QRectF(c.x() - k * 0.5, c.y() - k * 0.5, k, k));
+            }
+        }
+    }
+
     const auto drawPoly = [&](const pdfforge::RectF& bounds, const QColor& fill, const QColor& stroke) {
         const QPolygonF poly = spanPolygon(bounds);
         if (poly.isEmpty()) {
@@ -401,6 +609,27 @@ void PdfCanvas::mouseMoveEvent(QMouseEvent* event) {
         update();
         return;
     }
+    if (signWorkspace_) {
+        if (resizingStamp_) {
+            pdfforge::PointF page;
+            if (widgetToPage(event->pos(), page)) {
+                liveStampRect_ = resizedSignatureRect(activeHandle_, page);
+                update();
+            }
+            return;
+        }
+        const StampHandle handle = hitStampHandle(event->pos());
+        if (handle == StampHandle::NW || handle == StampHandle::SE) {
+            setCursor(Qt::SizeFDiagCursor);
+        } else if (handle == StampHandle::NE || handle == StampHandle::SW) {
+            setCursor(Qt::SizeBDiagCursor);
+        } else if (hitSignatureAt(event->pos()) >= 0) {
+            setCursor(Qt::PointingHandCursor);
+        } else {
+            setCursor(Qt::ArrowCursor);
+        }
+        return;
+    }
     if (addTextMode_) {
         setCursor(Qt::CrossCursor);
         return;
@@ -430,6 +659,27 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
         }
         return;
     }
+    if (signWorkspace_) {
+        const StampHandle handle = hitStampHandle(event->pos());
+        if (handle != StampHandle::None) {
+            resizingStamp_ = true;
+            activeHandle_ = handle;
+            liveStampRect_ = signatures_[static_cast<std::size_t>(selectedSignature_)].bounds;
+            setFocus();
+            return;
+        }
+        const int hit = hitSignatureAt(event->pos());
+        selectedSignature_ = hit;
+        resizingStamp_ = false;
+        if (hit >= 0) {
+            emit signatureSelected(signatures_[static_cast<std::size_t>(hit)]);
+        } else {
+            emit signatureSelectionCleared();
+        }
+        setFocus();
+        update();
+        return;
+    }
     if (addTextMode_) {
         pdfforge::PointF page;
         if (widgetToPage(event->pos(), page)) {
@@ -447,8 +697,22 @@ void PdfCanvas::mousePressEvent(QMouseEvent* event) {
     update();
 }
 
+void PdfCanvas::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() != Qt::LeftButton || !resizingStamp_) {
+        QWidget::mouseReleaseEvent(event);
+        return;
+    }
+    resizingStamp_ = false;
+    if (selectedSignature_ >= 0 && selectedSignature_ < static_cast<int>(signatures_.size()) &&
+        liveStampRect_.width >= 1.0f && liveStampRect_.height >= 1.0f) {
+        emit signatureResizeCommitted(signatures_[static_cast<std::size_t>(selectedSignature_)],
+                                      liveStampRect_);
+    }
+    activeHandle_ = StampHandle::None;
+}
+
 void PdfCanvas::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (event->button() != Qt::LeftButton || placeStampMode_) {
+    if (event->button() != Qt::LeftButton || placeStampMode_ || signWorkspace_) {
         return;
     }
     const int hit = hitSpanAt(event->pos());
@@ -497,7 +761,21 @@ void PdfCanvas::keyPressEvent(QKeyEvent* event) {
             event->accept();
             return;
         }
+        if (signWorkspace_) {
+            if (placeStampMode_) {
+                setPlaceStampMode(false);
+            }
+            clearSignatureSelection();
+            event->accept();
+            return;
+        }
         clearSelection();
+        event->accept();
+        return;
+    }
+    if (signWorkspace_ && selectedSignature_ >= 0 &&
+        (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace)) {
+        emit signatureDeleteRequested();
         event->accept();
         return;
     }

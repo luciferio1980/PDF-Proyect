@@ -16,6 +16,7 @@
 #include <fstream>
 #include <sstream>
 #include <system_error>
+#include <vector>
 
 #if PDFFORGE_HAS_QPDF
 #include "pdf/QpdfBridge.h"
@@ -254,6 +255,33 @@ std::vector<ImageObject> PdfDocument::extractImages(int pageIndex) const {
         image.pdfObjectIndex = i;
         if (FPDFPageObj_GetBounds(obj, &left, &bottom, &right, &top)) {
             image.bounds = RectF{left, bottom, right - left, top - bottom};
+        }
+        unsigned int pxW = 0;
+        unsigned int pxH = 0;
+        if (FPDFImageObj_GetImagePixelSize(obj, &pxW, &pxH)) {
+            image.widthPx = static_cast<float>(pxW);
+            image.heightPx = static_cast<float>(pxH);
+        }
+        const int marks = FPDFPageObj_CountMarks(obj);
+        for (int m = 0; m < marks; ++m) {
+            FPDF_PAGEOBJECTMARK mark = FPDFPageObj_GetMark(obj, static_cast<unsigned long>(m));
+            unsigned long outLen = 0;
+            if (!mark || !FPDFPageObjMark_GetName(mark, nullptr, 0, &outLen) || outLen < 2) {
+                continue;
+            }
+            std::vector<FPDF_WCHAR> buf((outLen + sizeof(FPDF_WCHAR) - 1) / sizeof(FPDF_WCHAR));
+            unsigned long written = 0;
+            if (!FPDFPageObjMark_GetName(mark, buf.data(),
+                                         static_cast<unsigned long>(buf.size() * sizeof(FPDF_WCHAR)),
+                                         &written)) {
+                continue;
+            }
+            const std::string name =
+                utf16LeToUtf8(reinterpret_cast<const unsigned short*>(buf.data()), buf.size());
+            if (name == "PDFForgeSign") {
+                image.isSignature = true;
+                break;
+            }
         }
         images.push_back(image);
     }
